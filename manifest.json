@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.paulpitchford.garmin-activities",
+  "name": "Garmin Activities",
+  "version": "0.1.0",
+  "author": "Paul Pitchford",
+  "license": "MIT",
+  "description": "Recent Garmin Connect activity summaries in the Omarchy bar.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Garmin Activities",
+    "description": "Recent Garmin Connect activity totals and per-type breakdowns.",
+    "category": "Health",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "period": "7Days",
+      "units": "auto",
+      "refreshMinutes": 30,
+      "demoMode": false
+    },
+    "schema": [
+      {
+        "key": "period",
+        "type": "enum",
+        "label": "Bar period",
+        "options": ["today", "7Days", "30Days", "90Days"],
+        "defaultValue": "7Days"
+      },
+      {
+        "key": "units",
+        "type": "enum",
+        "label": "Units",
+        "options": ["auto", "metric", "imperial"],
+        "defaultValue": "auto"
+      },
+      {
+        "key": "refreshMinutes",
+        "type": "integer",
+        "label": "Refresh interval (minutes)",
+        "min": 5,
+        "max": 360,
+        "step": 5,
+        "defaultValue": 30
+      },
+      {
+        "key": "demoMode",
+        "type": "boolean",
+        "label": "Use synthetic demo data",
+        "defaultValue": false
+      }
+    ]
+  }
+}

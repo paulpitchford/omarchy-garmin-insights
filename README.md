@@ -3,7 +3,7 @@
 Garmin Activities for Omarchy is a planned bar plugin for viewing recent Garmin Connect activity totals. It will cover today and the last 7, 30, and 90 calendar days, with breakdowns that respect the differences between cycling, running, walking, swimming, strength training, and other activity types.
 
 > [!IMPORTANT]
-> This project is pre-alpha and is not installable as an Omarchy plugin yet. The Python backend can authenticate with Garmin, synchronize recent activities, and write the bounded summary cache. The QML interface has not been implemented.
+> This project is pre-alpha and is not ready for normal installation. Phase 5 work has added the initial manifest, shared QML service, bar widget, details panel, and synthetic demo mode. Shell integration and failure-path testing are still in progress.
 
 The intended plugin ID is `io.github.paulpitchford.garmin-activities`.
 
@@ -26,9 +26,9 @@ The plugin will not upload, edit, or delete Garmin data.
 
 Omarchy runs plugins inside one long-lived Quickshell process. This plugin will use a singleton QML service for scheduling and shared state, plus a bar widget and its panel. The service will run a short-lived Python command when data needs refreshing. There will be no Python daemon or systemd service.
 
-The Python backend uses a locked `uv` environment. Authentication, activity fetching, SQLite storage, and the bounded JSON summary cache are implemented. QML will read that cache rather than credentials, raw Garmin responses, or SQLite.
+The Python backend uses a locked `uv` environment. Authentication, activity fetching, SQLite storage, and the bounded JSON summary cache are implemented. QML reads that cache rather than credentials, raw Garmin responses, or SQLite. The service validates the cache contract again before exposing values to the widget.
 
-A refresh uses a seven-day overlap unless the current local date has no successful full reconciliation. In that case, it fetches the current 90-day window. Full reconciliations remove records that have aged out of that window. The Garmin call has one retry for transient network or server failures and a 120-second deadline for the complete request. Authentication failures and HTTP 429 responses fail without a retry. The QML service will eventually run this command every 30 minutes and keep the last successful summary available when a refresh fails.
+A refresh uses a seven-day overlap unless the current local date has no successful full reconciliation. In that case, it fetches the current 90-day window. Full reconciliations remove records that have aged out of that window. The Garmin call has one retry for transient network or server failures and a 120-second deadline for the complete request. Authentication failures and HTTP 429 responses fail without a retry. The QML service runs this command every 30 minutes by default and keeps the last successful summary available when a refresh fails.
 
 Machine-readable commands use a versioned JSON envelope. Errors contain only a reviewed code and fixed safe message; unexpected exception text and command arguments are not reflected in output. Process statuses are grouped by category: `0` for success, `2` for invalid arguments, `10` for configuration, `20` for authentication, `30` for network or remote-service failures, `40` for invalid data, `50` for local storage, `60` for concurrency, and `70` for unexpected internal failures. Some categories are reserved for commands implemented in later phases.
 
@@ -87,7 +87,7 @@ The backend uses:
 - [uv](https://github.com/astral-sh/uv) for the locked Python environment; and
 - [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) 0.3.11, an MIT-licensed, unofficial Garmin Connect client installed from PyPI.
 
-The direct dependency is fixed in `pyproject.toml`, and all transitive versions and package hashes are recorded in `uv.lock`. During environment setup, `uv` downloads packages from `pypi.org` and `files.pythonhosted.org`. Garmin authentication can contact `sso.garmin.com`, `connect.garmin.com`, `connectapi.garmin.com`, `diauth.garmin.com`, and `mobile.integration.garmin.com`. The backend does not send credentials anywhere else.
+The direct dependency is fixed in `pyproject.toml`, and all transitive versions and package hashes are recorded in `uv.lock`. During plugin setup, `uv` stores the Python environment at `$XDG_CACHE_HOME/omarchy-garmin-activities/uv-environment` so generated dependency symlinks do not enter the plugin checkout. It downloads packages from `pypi.org` and `files.pythonhosted.org`. Garmin authentication can contact `sso.garmin.com`, `connect.garmin.com`, `connectapi.garmin.com`, `diauth.garmin.com`, and `mobile.integration.garmin.com`. The backend does not send credentials anywhere else.
 
 Activity refreshes use the read-only `/activitylist-service/activities/search/activities` endpoint on `connectapi.garmin.com` through `get_activities_by_date`, without an activity-type filter. `python-garminconnect` is not an official Garmin API. Garmin may change or rate-limit the web services it uses.
 
@@ -118,11 +118,22 @@ uv run --locked omarchy-garmin-activities doctor
 uv run --locked omarchy-garmin-activities doctor --json
 ```
 
-GitHub Actions runs the same formatting, linting, typing, testing, coverage, and structural checks. Omarchy validation and `qmllint` will join the suite when the QML plugin files exist. The project rules are in [AGENTS.md](AGENTS.md).
+GitHub Actions runs the Python formatting, linting, typing, testing, coverage, and structural checks. During phase 5, run the QML model tests and local Omarchy checks as well:
+
+```bash
+QT_QPA_PLATFORM=offscreen /usr/lib/qt6/bin/qmltestrunner -input tests/qml
+omarchy plugin validate "$PLUGIN_DIR"
+/usr/lib/qt6/bin/qmllint -I "$OMARCHY_PATH/shell" \
+  "$PLUGIN_DIR/BarWidget.qml" \
+  "$PLUGIN_DIR/Panel.qml" \
+  "$PLUGIN_DIR/Service.qml"
+```
+
+`PLUGIN_DIR` should point to a clean plugin checkout or staging copy, not a development tree containing `.venv` symlinks. The project rules are in [AGENTS.md](AGENTS.md).
 
 ## Project status
 
-The repository now has a typed Python package, stable CLI contracts, private XDG storage, interactive Garmin login with same-process MFA, account-scope protection, bounded activity validation, versioned SQLite storage, incremental refreshes, daily 90-day reconciliation, process locking, and a bounded summary cache. Tests mock Garmin and use fabricated activities. The Omarchy manifest and QML interface are next. Installation instructions will be added only when the plugin can display cached activity summaries safely.
+The repository now has a typed Python backend and the first phase 5 QML implementation. The shared service schedules refreshes, watches the summary cache, maps backend failures to display states, and launches setup or login in a visible terminal. The bar widget and details panel support horizontal and vertical bars, keyboard controls, panel switching, unit conversion, and fabricated demo data. Shell lifecycle, multi-monitor, and remaining failure-path tests still need to be completed before installation instructions are added.
 
 ## Disclaimer
 
