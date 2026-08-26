@@ -1,5 +1,7 @@
 import json
+import signal
 from collections.abc import Iterator
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import Mock, create_autospec, patch
 
@@ -19,7 +21,19 @@ from omarchy_garmin.auth import (
     Credentials,
     InvalidAuthResponseError,
 )
-from omarchy_garmin.garmin_gateway import GarminAuthGateway
+from omarchy_garmin.garmin_gateway import (
+    GarminActivityGateway,
+    GarminAuthGateway,
+    _request_deadline,
+    _RequestDeadlineExpired,
+)
+from omarchy_garmin.sync import (
+    ActivityAuthenticationRequiredError,
+    ActivityDataError,
+    ActivityNetworkError,
+    ActivityRateLimitedError,
+    ActivityRemoteServiceError,
+)
 
 
 def _token() -> str:
@@ -206,3 +220,137 @@ def test_invalid_dependency_token_material_is_rejected(
 
     with pytest.raises(InvalidAuthResponseError):
         GarminAuthGateway().restore(_token().encode())
+
+
+def test_activity_fetch_uses_all_types_and_bounded_client_settings(
+    garmin_constructor: Mock,
+) -> None:
+    garmin = garmin_constructor.return_value
+    garmin.get_activities_by_date.return_value = [
+        {
+            "activityId": 101,
+            "privateLocation": "ignored later",
+        }
+    ]
+
+    result = GarminActivityGateway().fetch(
+        _token().encode(),
+        date(2026, 5, 29),
+        date(2026, 8, 26),
+    )
+
+    garmin_constructor.assert_called_once_with(
+        retry_attempts=1,
+        retry_min_wait=1,
+        retry_max_wait=2,
+        verify_login=True,
+    )
+    garmin.login.assert_called_once_with(tokenstore=_token())
+    garmin.get_activities_by_date.assert_called_once_with(
+        "2026-05-29",
+        "2026-08-26",
+        sortorder="asc",
+    )
+    assert result.session.account_id == "10101"
+    assert result.payload == [{"activityId": 101, "privateLocation": "ignored later"}]
+
+
+@pytest.mark.parametrize(
+    ("external_error", "domain_error"),
+    [
+        pytest.param(
+            GarminConnectAuthenticationError("private"),
+            ActivityAuthenticationRequiredError,
+            id="authentication",
+        ),
+        pytest.param(
+            GarminConnectTooManyRequestsError("private"),
+            ActivityRateLimitedError,
+            id="rate-limit",
+        ),
+        pytest.param(
+            GarminConnectConnectionError("private"),
+            ActivityNetworkError,
+            id="network",
+        ),
+    ],
+)
+def test_activity_dependency_errors_are_mapped(
+    garmin_constructor: Mock,
+    external_error: Exception,
+    domain_error: type[Exception],
+) -> None:
+    garmin_constructor.return_value.login.side_effect = external_error
+
+    with pytest.raises(domain_error) as caught:
+        GarminActivityGateway().fetch(
+            _token().encode(),
+            date(2026, 8, 20),
+            date(2026, 8, 26),
+        )
+
+    assert "private" not in str(caught.value)
+
+
+def test_activity_http_failure_is_remote_service_error(garmin_constructor: Mock) -> None:
+    error = GarminConnectConnectionError("private")
+    error.response = SimpleNamespace(status_code=503)
+    garmin_constructor.return_value.get_activities_by_date.side_effect = error
+
+    with pytest.raises(ActivityRemoteServiceError):
+        GarminActivityGateway().fetch(
+            _token().encode(),
+            date(2026, 8, 20),
+            date(2026, 8, 26),
+        )
+
+
+def test_activity_fetch_rejects_invalid_local_or_refreshed_tokens(
+    garmin_constructor: Mock,
+) -> None:
+    with pytest.raises(ActivityDataError):
+        GarminActivityGateway().fetch(b"\xff", date(2026, 8, 20), date(2026, 8, 26))
+
+    garmin_constructor.return_value.client.dumps.return_value = "{}"
+    with pytest.raises(ActivityDataError):
+        GarminActivityGateway().fetch(
+            _token().encode(),
+            date(2026, 8, 20),
+            date(2026, 8, 26),
+        )
+
+
+def test_complete_activity_request_deadline_maps_to_network_failure(
+    garmin_constructor: Mock,
+) -> None:
+    with (
+        patch(
+            "omarchy_garmin.garmin_gateway._request_deadline",
+            side_effect=_RequestDeadlineExpired("expired"),
+        ),
+        pytest.raises(ActivityNetworkError),
+    ):
+        GarminActivityGateway().fetch(
+            _token().encode(),
+            date(2026, 8, 20),
+            date(2026, 8, 26),
+        )
+
+    garmin_constructor.return_value.login.assert_not_called()
+
+
+def test_request_deadline_restores_existing_signal_state() -> None:
+    previous_handler = Mock()
+    with (
+        patch("omarchy_garmin.garmin_gateway.signal.getsignal", return_value=previous_handler),
+        patch("omarchy_garmin.garmin_gateway.signal.getitimer", return_value=(5.0, 0.5)),
+        patch("omarchy_garmin.garmin_gateway.signal.signal") as set_signal,
+        patch("omarchy_garmin.garmin_gateway.signal.setitimer") as set_timer,
+        pytest.raises(_RequestDeadlineExpired),
+        _request_deadline(120),
+    ):
+        deadline_handler = set_signal.call_args_list[0].args[1]
+        deadline_handler(signal.SIGALRM, None)
+
+    assert set_timer.call_args_list[-1].args == (signal.ITIMER_REAL, 5.0, 0.5)
+    assert set_signal.call_args_list[-1].args == (signal.SIGALRM, previous_handler)

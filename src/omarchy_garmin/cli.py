@@ -19,6 +19,7 @@ from omarchy_garmin.auth import (
     AuthNetworkError,
     AuthOperations,
     AuthRateLimitedError,
+    AuthRefreshInProgressError,
     AuthRemoteServiceError,
     AuthService,
     AuthStatus,
@@ -30,6 +31,19 @@ from omarchy_garmin.auth import (
 from omarchy_garmin.errors import ERROR_SPECS, CommandError, ErrorCode, ExitStatus
 from omarchy_garmin.paths import AppPaths
 from omarchy_garmin.prompts import TerminalCredentialProvider
+from omarchy_garmin.sync import (
+    ActivityAuthenticationRequiredError,
+    ActivityDataError,
+    ActivityNetworkError,
+    ActivityRateLimitedError,
+    ActivityRefreshInProgressError,
+    ActivityRemoteServiceError,
+    ActivityStorageError,
+    ActivitySyncConfigurationError,
+    ActivitySyncError,
+    ActivitySyncService,
+    RefreshOperations,
+)
 
 OUTPUT_SCHEMA_VERSION = 1
 _KNOWN_AUTH_COMMANDS = frozenset({"status", "login", "logout", "purge"})
@@ -66,6 +80,10 @@ def _build_parser() -> argparse.ArgumentParser:
         auth_command = auth_subparsers.add_parser(action)
         auth_command.add_argument("--json", action="store_true", dest="as_json")
         auth_command.add_argument("--confirm", action="store_true")
+
+    refresh = subparsers.add_parser("refresh", help="synchronize recent Garmin activities")
+    refresh.add_argument("--json", action="store_true", dest="as_json")
+    refresh.add_argument("--full", action="store_true", dest="force_full")
     return parser
 
 
@@ -136,6 +154,19 @@ def _default_auth_operations(paths: AppPaths, stdin: TextIO, stderr: TextIO) -> 
         store=AuthStore(paths),
         gateway=GarminAuthGateway(),
         credential_provider=TerminalCredentialProvider(stdin, stderr),
+    )
+
+
+def _default_refresh_operations(paths: AppPaths) -> RefreshOperations:
+    """Build activity synchronization dependencies at the process composition root."""
+    from omarchy_garmin.database import ActivityRepository
+    from omarchy_garmin.garmin_gateway import GarminActivityGateway
+
+    return ActivitySyncService(
+        paths=paths,
+        auth_store=AuthStore(paths),
+        gateway=GarminActivityGateway(),
+        repository=ActivityRepository(paths.activity_database),
     )
 
 
@@ -215,10 +246,39 @@ def _run_auth(
     raise AssertionError(f"unhandled auth command: {action}")  # pragma: no cover
 
 
+def _run_refresh(
+    arguments: argparse.Namespace,
+    *,
+    paths: AppPaths,
+    stdout: TextIO,
+    operations: RefreshOperations | None,
+) -> int:
+    """Run one activity refresh and write its bounded result."""
+    refresh = operations or _default_refresh_operations(paths)
+    result = refresh.refresh(force_full=arguments.force_full)
+    data: dict[str, object] = {
+        "mode": result.mode,
+        "startDate": result.start_date.isoformat(),
+        "endDate": result.end_date.isoformat(),
+        "fetchedCount": result.fetched_count,
+        "deletedCount": result.deleted_count,
+    }
+    return _write_auth_success(
+        stdout=stdout,
+        command="refresh",
+        as_json=arguments.as_json,
+        data=data,
+        human_message=(
+            f"Garmin activities refreshed ({result.mode}, {result.fetched_count} stored, "
+            f"{result.deleted_count} removed)."
+        ),
+    )
+
+
 def _requested_command(argv: Sequence[str]) -> str | None:
     """Return only a recognized command name for public error output."""
-    if argv and argv[0] == "doctor":
-        return "doctor"
+    if argv and argv[0] in {"doctor", "refresh"}:
+        return argv[0]
     if len(argv) > 1 and argv[0] == "auth" and argv[1] in _KNOWN_AUTH_COMMANDS:
         return f"auth.{argv[1]}"
     return None
@@ -265,6 +325,27 @@ def _resolve_paths(environment: Mapping[str, str], home: Path) -> AppPaths:
         raise CommandError(ErrorCode.INVALID_CONFIGURATION) from error
 
 
+def _sync_error_code(error: ActivitySyncError) -> ErrorCode:
+    """Map activity-sync failures to the stable process contract."""
+    if isinstance(error, ActivitySyncConfigurationError):
+        return ErrorCode.INVALID_CONFIGURATION
+    if isinstance(error, ActivityAuthenticationRequiredError):
+        return ErrorCode.AUTH_REQUIRED
+    if isinstance(error, ActivityRateLimitedError):
+        return ErrorCode.RATE_LIMITED
+    if isinstance(error, ActivityNetworkError):
+        return ErrorCode.NETWORK_UNAVAILABLE
+    if isinstance(error, ActivityRemoteServiceError):
+        return ErrorCode.REMOTE_SERVICE_ERROR
+    if isinstance(error, ActivityDataError):
+        return ErrorCode.INVALID_REMOTE_DATA
+    if isinstance(error, ActivityStorageError):
+        return ErrorCode.LOCAL_STORAGE_ERROR
+    if isinstance(error, ActivityRefreshInProgressError):
+        return ErrorCode.REFRESH_IN_PROGRESS
+    return ErrorCode.INTERNAL_ERROR
+
+
 def _auth_error_code(error: AuthError) -> ErrorCode:
     """Map authentication-domain failures to the stable process contract."""
     if isinstance(error, InteractiveTerminalRequiredError):
@@ -283,6 +364,8 @@ def _auth_error_code(error: AuthError) -> ErrorCode:
         return ErrorCode.INVALID_REMOTE_DATA
     if isinstance(error, AuthStorageError):
         return ErrorCode.LOCAL_STORAGE_ERROR
+    if isinstance(error, AuthRefreshInProgressError):
+        return ErrorCode.REFRESH_IN_PROGRESS
     return ErrorCode.INTERNAL_ERROR
 
 
@@ -295,6 +378,7 @@ def run(
     environment: Mapping[str, str],
     home: Path,
     auth_operations: AuthOperations | None = None,
+    refresh_operations: RefreshOperations | None = None,
 ) -> int:
     """Run the CLI with explicit process boundaries for deterministic testing.
 
@@ -306,6 +390,7 @@ def run(
         environment: Environment variables used to resolve XDG paths.
         home: Home directory used for XDG defaults.
         auth_operations: Optional injected authentication boundary for tests.
+        refresh_operations: Optional injected activity-refresh boundary for tests.
 
     Returns:
         A process exit status.
@@ -332,6 +417,13 @@ def run(
                 stderr=stderr,
                 operations=auth_operations,
             )
+        if arguments.command == "refresh":
+            return _run_refresh(
+                arguments,
+                paths=paths,
+                stdout=stdout,
+                operations=refresh_operations,
+            )
 
         raise AssertionError(f"unhandled command: {arguments.command}")  # pragma: no cover
     except CommandError as error:
@@ -349,6 +441,14 @@ def run(
             command=command,
             as_json=as_json,
             code=_auth_error_code(error),
+        )
+    except ActivitySyncError as error:
+        return _write_error(
+            stdout=stdout,
+            stderr=stderr,
+            command=command,
+            as_json=as_json,
+            code=_sync_error_code(error),
         )
     except Exception:  # noqa: BLE001 - final process boundary returns a fixed, redacted failure
         return _write_error(

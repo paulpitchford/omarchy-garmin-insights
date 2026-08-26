@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterator, Mapping
+from datetime import date
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from omarchy_garmin.auth import (
     AuthenticationRejectedError,
     AuthNetworkError,
     AuthRateLimitedError,
+    AuthRefreshInProgressError,
     AuthRemoteServiceError,
     AuthStatus,
     AuthStorageError,
@@ -19,6 +21,17 @@ from omarchy_garmin.auth import (
 )
 from omarchy_garmin.cli import OUTPUT_SCHEMA_VERSION, run
 from omarchy_garmin.errors import ERROR_SPECS, ErrorCode, ExitStatus
+from omarchy_garmin.sync import (
+    ActivityAuthenticationRequiredError,
+    ActivityDataError,
+    ActivityNetworkError,
+    ActivityRateLimitedError,
+    ActivityRefreshInProgressError,
+    ActivityRemoteServiceError,
+    ActivityStorageError,
+    ActivitySyncConfigurationError,
+    RefreshResult,
+)
 
 
 class _FakeAuthOperations:
@@ -50,6 +63,24 @@ class _FakeAuthOperations:
 
     def purge(self) -> None:
         self._record("purge")
+
+
+class _FakeRefreshOperations:
+    def __init__(self, failure: Exception | None = None) -> None:
+        self.failure = failure
+        self.force_full_calls: list[bool] = []
+
+    def refresh(self, *, force_full: bool = False) -> RefreshResult:
+        self.force_full_calls.append(force_full)
+        if self.failure is not None:
+            raise self.failure
+        return RefreshResult(
+            mode="full" if force_full else "incremental",
+            start_date=date(2026, 5, 29) if force_full else date(2026, 8, 20),
+            end_date=date(2026, 8, 26),
+            fetched_count=3,
+            deleted_count=1,
+        )
 
 
 class _FailingEnvironment(Mapping[str, str]):
@@ -441,6 +472,12 @@ def test_destructive_auth_commands_require_confirmation_and_return_contract(
             50,
             id="storage",
         ),
+        pytest.param(
+            AuthRefreshInProgressError("private"),
+            "refresh_in_progress",
+            60,
+            id="refresh-in-progress",
+        ),
     ],
 )
 def test_auth_failures_map_to_redacted_error_contract(
@@ -459,5 +496,139 @@ def test_auth_failures_map_to_redacted_error_contract(
 
     payload: dict[str, Any] = json.loads(stdout.getvalue())
     assert exit_status == expected_status
+    assert payload["error"]["code"] == expected_code
+    assert "private" not in stdout.getvalue()
+
+
+def test_refresh_json_has_bounded_contract_and_forwards_full_option() -> None:
+    stdout = StringIO()
+    refresh = _FakeRefreshOperations()
+
+    exit_status = run(
+        ["refresh", "--json", "--full"],
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={"XDG_RUNTIME_DIR": "/run/user/1000"},
+        home=Path("/home/example"),
+        refresh_operations=refresh,
+    )
+
+    assert exit_status == ExitStatus.SUCCESS
+    assert refresh.force_full_calls == [True]
+    assert json.loads(stdout.getvalue()) == {
+        "schemaVersion": OUTPUT_SCHEMA_VERSION,
+        "command": "refresh",
+        "ok": True,
+        "data": {
+            "mode": "full",
+            "startDate": "2026-05-29",
+            "endDate": "2026-08-26",
+            "fetchedCount": 3,
+            "deletedCount": 1,
+        },
+        "error": None,
+    }
+
+
+def test_refresh_default_composition_requires_stored_authentication(tmp_path: Path) -> None:
+    stdout = StringIO()
+
+    exit_status = run(
+        ["refresh", "--json"],
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={"XDG_RUNTIME_DIR": str(tmp_path / "runtime")},
+        home=tmp_path,
+    )
+
+    assert exit_status == ExitStatus.AUTHENTICATION_ERROR
+    assert json.loads(stdout.getvalue())["error"]["code"] == "auth_required"
+
+
+def test_refresh_human_output_is_concise() -> None:
+    stdout = StringIO()
+
+    exit_status = run(
+        ["refresh"],
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={"XDG_RUNTIME_DIR": "/run/user/1000"},
+        home=Path("/home/example"),
+        refresh_operations=_FakeRefreshOperations(),
+    )
+
+    assert exit_status == ExitStatus.SUCCESS
+    assert stdout.getvalue() == (
+        "Garmin activities refreshed (incremental, 3 stored, 1 removed).\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_code", "expected_status"),
+    [
+        pytest.param(
+            ActivitySyncConfigurationError("private"),
+            "invalid_configuration",
+            10,
+            id="configuration",
+        ),
+        pytest.param(
+            ActivityAuthenticationRequiredError("private"),
+            "auth_required",
+            20,
+            id="authentication",
+        ),
+        pytest.param(ActivityRateLimitedError("private"), "rate_limited", 30, id="rate-limit"),
+        pytest.param(
+            ActivityNetworkError("private"),
+            "network_unavailable",
+            30,
+            id="network",
+        ),
+        pytest.param(
+            ActivityRemoteServiceError("private"),
+            "remote_service_error",
+            30,
+            id="remote",
+        ),
+        pytest.param(
+            ActivityDataError("private"),
+            "invalid_remote_data",
+            40,
+            id="data",
+        ),
+        pytest.param(
+            ActivityStorageError("private"),
+            "local_storage_error",
+            50,
+            id="storage",
+        ),
+        pytest.param(
+            ActivityRefreshInProgressError("private"),
+            "refresh_in_progress",
+            60,
+            id="concurrency",
+        ),
+    ],
+)
+def test_refresh_failures_map_to_redacted_error_contract(
+    failure: Exception,
+    expected_code: str,
+    expected_status: int,
+) -> None:
+    stdout = StringIO()
+
+    exit_status = run(
+        ["refresh", "--json"],
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={"XDG_RUNTIME_DIR": "/run/user/1000"},
+        home=Path("/home/example"),
+        refresh_operations=_FakeRefreshOperations(failure),
+    )
+
+    payload: dict[str, Any] = json.loads(stdout.getvalue())
+    assert exit_status == expected_status
+    assert payload["command"] == "refresh"
     assert payload["error"]["code"] == expected_code
     assert "private" not in stdout.getvalue()

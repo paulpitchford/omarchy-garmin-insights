@@ -11,6 +11,7 @@ TOKEN_FILE_NAME = "garmin_tokens.json"  # noqa: S105 - fixed filename, not a cre
 ACCOUNT_SCOPE_FILE_NAME = "account_scope.json"
 ACTIVITY_DATABASE_FILE_NAME = "activities.sqlite3"
 SUMMARY_FILE_NAME = "summary.json"
+SYNC_LOCK_FILE_NAME = "sync.lock"
 
 
 def _absolute_xdg_path(environment: Mapping[str, str], variable: str) -> Path | None:
@@ -56,6 +57,11 @@ class AppPaths:
     def summary_file(self) -> Path:
         """Return the bounded display summary cache path."""
         return self.cache / SUMMARY_FILE_NAME
+
+    @property
+    def sync_lock_file(self) -> Path | None:
+        """Return the refresh lock path, or None without a safe runtime root."""
+        return self.runtime / SYNC_LOCK_FILE_NAME if self.runtime is not None else None
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str], home: Path) -> AppPaths:

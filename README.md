@@ -3,7 +3,7 @@
 Garmin Activities for Omarchy is a planned bar plugin for viewing recent Garmin Connect activity totals. It will cover today and the last 7, 30, and 90 calendar days, with breakdowns that respect the differences between cycling, running, walking, swimming, strength training, and other activity types.
 
 > [!IMPORTANT]
-> This project is pre-alpha and is not installable as an Omarchy plugin yet. The Python backend can authenticate with Garmin, but activity synchronisation and the QML interface have not been implemented.
+> This project is pre-alpha and is not installable as an Omarchy plugin yet. The Python backend can authenticate with Garmin and synchronize recent activities. The bounded summary cache and QML interface have not been implemented.
 
 The intended plugin ID is `io.github.paulpitchford.garmin-activities`.
 
@@ -26,9 +26,9 @@ The plugin will not upload, edit, or delete Garmin data.
 
 Omarchy runs plugins inside one long-lived Quickshell process. This plugin will use a singleton QML service for scheduling and shared state, plus a bar widget and its panel. The service will run a short-lived Python command when data needs refreshing. There will be no Python daemon or systemd service.
 
-The Python backend uses a locked `uv` environment. Authentication is implemented. Activity fetching, SQLite storage, and the bounded QML summary are still planned. QML will not read credentials, raw Garmin responses, or SQLite directly.
+The Python backend uses a locked `uv` environment. Authentication, activity fetching, and SQLite storage are implemented. The bounded QML summary is still planned. QML will not read credentials, raw Garmin responses, or SQLite directly.
 
-The planned default refresh interval is 30 minutes. Recent data will refresh incrementally, with a full 90-day reconciliation once per day. Authentication failures and Garmin rate limits will stop automatic retries and leave the last successful summary available.
+A refresh uses a seven-day overlap unless the current local date has no successful full reconciliation. In that case, it fetches the current 90-day window. Full reconciliations remove records that have aged out of that window. The Garmin call has one retry for transient network or server failures and a 120-second deadline for the complete request. Authentication failures and HTTP 429 responses fail without a retry. The QML service will eventually run this command every 30 minutes and keep the last successful summary available when a refresh fails.
 
 Machine-readable commands use a versioned JSON envelope. Errors contain only a reviewed code and fixed safe message; unexpected exception text and command arguments are not reflected in output. Process statuses are grouped by category: `0` for success, `2` for invalid arguments, `10` for configuration, `20` for authentication, `30` for network or remote-service failures, `40` for invalid data, `50` for local storage, `60` for concurrency, and `70` for unexpected internal failures. Some categories are reserved for commands implemented in later phases.
 
@@ -43,6 +43,15 @@ uv run --locked omarchy-garmin-activities auth purge --confirm
 
 Run `auth login` in a visible terminal. It reads the password and any MFA code with hidden input in the same Python process. `auth status` checks local configuration only, so stored tokens are reported as configured but unverified until `auth login` or a later Garmin request succeeds. Logout removes tokens but keeps account-scoped local data. Purge removes the token, account scope, and all other known plugin data files. Both operations are idempotent and require `--confirm`.
 
+Activity synchronization commands are also available:
+
+```bash
+uv run --locked omarchy-garmin-activities refresh --json
+uv run --locked omarchy-garmin-activities refresh --json --full
+```
+
+`refresh` requires stored tokens and an absolute `XDG_RUNTIME_DIR`. It acquires a non-blocking owner-only lock, so two refresh processes cannot overlap. The first refresh each local day is a full reconciliation; `--full` requests one explicitly. A failed fetch, malformed response, account mismatch, or interrupted database transaction leaves the previous activity rows intact.
+
 ## Privacy and security
 
 Garmin activity data can reveal routines, health information, and location. The implementation will follow these rules:
@@ -50,7 +59,8 @@ Garmin activity data can reveal routines, health information, and location. The 
 - Login happens in a visible terminal. Passwords and MFA codes are never passed through command arguments or environment variables.
 - Only Garmin tokens are retained. They are stored at `$XDG_STATE_HOME/omarchy-garmin-activities/auth/garmin_tokens.json` with owner-only permissions.
 - A pseudonymous account fingerprint is stored at `$XDG_DATA_HOME/omarchy-garmin-activities/account_scope.json` to prevent data from two accounts being merged. The raw Garmin account identifier, email address, and profile response are not saved.
-- Normalised activity data will be stored under `$XDG_DATA_HOME` with owner-only permissions.
+- Normalised activity data is stored at `$XDG_DATA_HOME/omarchy-garmin-activities/activities.sqlite3` with owner-only permissions. The current 90-day window is retained.
+- The allowlisted activity fields are the Garmin activity ID, optional name, original type key, local start time and date, duration, moving duration, distance, elevation gain, energy, average and maximum heart rate, average speed, average power, total sets, and total repetitions. Energy is converted from Garmin kilocalories to joules; other measurements remain in their canonical stored units.
 - Complete Garmin API responses are not saved.
 - Coordinates, routes, profile responses, and email addresses are not written to the activity database or display cache.
 - FIT, GPX, TCX, and KML files are not downloaded by the first release.
@@ -68,7 +78,7 @@ The backend uses:
 
 The direct dependency is fixed in `pyproject.toml`, and all transitive versions and package hashes are recorded in `uv.lock`. During environment setup, `uv` downloads packages from `pypi.org` and `files.pythonhosted.org`. Garmin authentication can contact `sso.garmin.com`, `connect.garmin.com`, `connectapi.garmin.com`, `diauth.garmin.com`, and `mobile.integration.garmin.com`. The backend does not send credentials anywhere else.
 
-`python-garminconnect` is not an official Garmin API. Garmin may change or rate-limit the web services it uses.
+Activity refreshes use the read-only `/activitylist-service/activities/search/activities` endpoint on `connectapi.garmin.com` through `get_activities_by_date`, without an activity-type filter. `python-garminconnect` is not an official Garmin API. Garmin may change or rate-limit the web services it uses.
 
 ## Development
 
@@ -101,7 +111,7 @@ GitHub Actions runs the same formatting, linting, typing, testing, coverage, and
 
 ## Project status
 
-The repository now has a typed Python package, stable CLI contracts, private XDG storage, interactive Garmin login with same-process MFA, local logout and purge, account-scope protection, tests, locked dependencies, and CI. Tests mock Garmin and never require a live account. Activity synchronisation is next. Installation instructions will be added only when the plugin can display cached activity summaries safely.
+The repository now has a typed Python package, stable CLI contracts, private XDG storage, interactive Garmin login with same-process MFA, account-scope protection, bounded activity validation, versioned SQLite storage, incremental refreshes, daily 90-day reconciliation, process locking, tests, locked dependencies, and CI. Tests mock Garmin and use fabricated activities. The bounded summary contract is next. Installation instructions will be added only when the plugin can display cached activity summaries safely.
 
 ## Disclaimer
 

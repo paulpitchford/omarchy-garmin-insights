@@ -7,6 +7,7 @@ from omarchy_garmin.paths import (
     ACTIVITY_DATABASE_FILE_NAME,
     APP_DIRECTORY,
     SUMMARY_FILE_NAME,
+    SYNC_LOCK_FILE_NAME,
     TOKEN_FILE_NAME,
     AppPaths,
 )
@@ -29,6 +30,7 @@ def test_application_file_paths_use_dedicated_xdg_scopes() -> None:
     assert paths.account_scope_file == paths.data / ACCOUNT_SCOPE_FILE_NAME
     assert paths.activity_database == paths.data / ACTIVITY_DATABASE_FILE_NAME
     assert paths.summary_file == paths.cache / SUMMARY_FILE_NAME
+    assert paths.sync_lock_file is None
 
 
 def test_absolute_xdg_overrides_are_used() -> None:
@@ -45,6 +47,7 @@ def test_absolute_xdg_overrides_are_used() -> None:
     assert paths.data == Path("/private/data") / APP_DIRECTORY
     assert paths.cache == Path("/private/cache") / APP_DIRECTORY
     assert paths.runtime == Path("/run/user/1000") / APP_DIRECTORY
+    assert paths.sync_lock_file == paths.runtime / SYNC_LOCK_FILE_NAME
 
 
 @pytest.mark.parametrize(

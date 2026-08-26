@@ -75,7 +75,9 @@ Do not store:
 
 Missing values remain `None` or JSON `null`. Do not turn missing values into zero. Preserve Garmin's original activity type key and apply a display grouping separately so new types degrade safely.
 
-Use calendar periods based on the activity's local start date. Today includes today; 7, 30, and 90 days include today and the preceding 6, 29, or 89 local dates.
+Use calendar periods based on the activity's local start date. Today includes today; 7, 30, and 90 days include today and the preceding 6, 29, or 89 local dates. Retain only the current rolling 90-day activity window. Incremental refreshes reconcile a seven-day overlap, and one full 90-day reconciliation runs per local calendar day.
+
+The reviewed activity allowlist is Garmin activity ID, optional activity name, original type key, local start time and date, duration, moving duration, distance, elevation gain, energy, average and maximum heart rate, average speed, average power, total sets, and total repetitions. Convert Garmin kilocalories to joules before persistence. Reject the complete refresh if a required field or any supplied allowlisted value is malformed, non-finite, out of range, or excessive. Ignore all fields outside the allowlist.
 
 ## Python practice reference
 
@@ -101,7 +103,7 @@ The initially reviewed skill revision is `5202c854f211dff8f5255fa78691c193c8b26a
 - Do not use broad `except Exception` blocks except at a top-level boundary that logs a safe classification and exits predictably.
 - Do not use `shell=True`, dynamic evaluation, or command strings for ordinary subprocesses.
 - Keep stdout machine-readable for commands used by QML. Send concise diagnostics to stderr and never include secrets or raw responses.
-- Bound network retries. Authentication errors and HTTP 429 responses must fail without aggressive retry loops.
+- Bound network retries. Activity refreshes use at most one retry for transient network or server failures and a 120-second overall Garmin request deadline. Authentication errors and HTTP 429 responses fail without retry.
 - Make refresh, upsert, reconciliation, logout, and purge behaviour idempotent.
 
 ## Python tooling and dependencies

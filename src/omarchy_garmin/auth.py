@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from omarchy_garmin.locking import (
+    RefreshInProgressError,
+    RefreshLockStorageError,
+    activity_refresh_lock,
+)
 from omarchy_garmin.paths import AppPaths
 from omarchy_garmin.storage import (
     UnsafeStoragePathError,
@@ -57,6 +63,10 @@ class InvalidAuthResponseError(AuthError):
 
 class AuthStorageError(AuthError):
     """Raised when private authentication state cannot be used safely."""
+
+
+class AuthRefreshInProgressError(AuthError):
+    """Raised when authentication state would race an activity refresh."""
 
 
 class InteractiveTerminalRequiredError(AuthError):
@@ -199,6 +209,20 @@ class AuthStore:
         """Initialize the store with resolved application paths."""
         self._paths = paths
 
+    @contextmanager
+    def exclusive_activity_state(self) -> Iterator[None]:
+        """Prevent authentication mutations from racing an activity refresh."""
+        if self._paths.sync_lock_file is None:
+            yield
+            return
+        try:
+            with activity_refresh_lock(self._paths.sync_lock_file):
+                yield
+        except RefreshInProgressError as error:
+            raise AuthRefreshInProgressError("an activity refresh is already running") from error
+        except RefreshLockStorageError as error:
+            raise AuthStorageError("activity refresh lock is unavailable") from error
+
     def _auth_directory_exists(self) -> bool:
         if not private_directory_exists(self._paths.state):
             return False
@@ -325,18 +349,19 @@ class AuthService:
 
     def login(self) -> AuthStatus:
         """Verify stored tokens or complete credential and MFA login."""
-        token_json = self._store.read_token()
-        session: AuthenticatedSession
-        if token_json is not None:
-            try:
-                session = self._gateway.restore(token_json)
-            except AuthenticationRejectedError:
+        with self._store.exclusive_activity_state():
+            token_json = self._store.read_token()
+            session: AuthenticatedSession
+            if token_json is not None:
+                try:
+                    session = self._gateway.restore(token_json)
+                except AuthenticationRejectedError:
+                    session = self._authenticate_credentials()
+            else:
                 session = self._authenticate_credentials()
-        else:
-            session = self._authenticate_credentials()
 
-        self._store.persist(session)
-        return AuthStatus(configured=True, verified=True, account_scoped=True)
+            self._store.persist(session)
+            return AuthStatus(configured=True, verified=True, account_scoped=True)
 
     def _authenticate_credentials(self) -> AuthenticatedSession:
         """Collect credentials and authenticate in the current process."""
@@ -348,8 +373,10 @@ class AuthService:
 
     def logout(self) -> None:
         """Remove tokens while retaining account-scoped local data."""
-        self._store.logout()
+        with self._store.exclusive_activity_state():
+            self._store.logout()
 
     def purge(self) -> None:
         """Remove all known local Garmin files."""
-        self._store.purge()
+        with self._store.exclusive_activity_state():
+            self._store.purge()

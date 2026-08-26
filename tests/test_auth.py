@@ -11,6 +11,7 @@ from omarchy_garmin.auth import (
     AuthenticationRejectedError,
     AuthGateway,
     AuthRateLimitedError,
+    AuthRefreshInProgressError,
     AuthService,
     AuthStatus,
     AuthStorageError,
@@ -20,6 +21,7 @@ from omarchy_garmin.auth import (
     InvalidAuthResponseError,
     validate_token_json,
 )
+from omarchy_garmin.locking import activity_refresh_lock
 from omarchy_garmin.paths import AppPaths
 from omarchy_garmin.storage import atomic_write_private, ensure_private_directory
 
@@ -375,6 +377,14 @@ def test_rate_limited_restore_does_not_prompt_for_credentials(tmp_path: Path) ->
         service.login()
 
     assert credentials.read_count == 0
+
+
+def test_authentication_mutations_do_not_overlap_activity_refresh(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    service = AuthService(AuthStore(paths), _FakeGateway(), _FakeCredentials())
+
+    with activity_refresh_lock(paths.sync_lock_file), pytest.raises(AuthRefreshInProgressError):
+        service.login()
 
 
 def test_service_status_logout_and_purge_delegate_to_store(tmp_path: Path) -> None:
