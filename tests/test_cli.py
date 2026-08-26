@@ -115,10 +115,10 @@ def test_doctor_json_has_stable_machine_contract() -> None:
     assert payload["error"] is None
     assert payload["data"]["runtimeDirectoryAvailable"] is True
     assert payload["data"]["paths"] == {
-        "cache": "/home/example/.cache/omarchy-garmin-activities",
-        "data": "/home/example/.local/share/omarchy-garmin-activities",
-        "runtime": "/run/user/1000/omarchy-garmin-activities",
-        "state": "/home/example/.local/state/omarchy-garmin-activities",
+        "cache": "/home/example/.cache/omarchy-garmin-insights",
+        "data": "/home/example/.local/share/omarchy-garmin-insights",
+        "runtime": "/run/user/1000/omarchy-garmin-insights",
+        "state": "/home/example/.local/state/omarchy-garmin-insights",
     }
 
 
@@ -136,7 +136,7 @@ def test_doctor_human_output_marks_missing_runtime_directory() -> None:
 
     assert exit_status == ExitStatus.SUCCESS
     assert stderr.getvalue() == ""
-    assert "Garmin Activities backend is ready." in stdout.getvalue()
+    assert "Garmin Insights backend is ready." in stdout.getvalue()
     assert "Runtime: unavailable" in stdout.getvalue()
 
 
@@ -558,9 +558,7 @@ def test_refresh_human_output_is_concise() -> None:
     )
 
     assert exit_status == ExitStatus.SUCCESS
-    assert stdout.getvalue() == (
-        "Garmin activities refreshed (incremental, 3 stored, 1 removed).\n"
-    )
+    assert stdout.getvalue() == ("Garmin data refreshed (incremental, 3 stored, 1 removed).\n")
 
 
 @pytest.mark.parametrize(

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "io.github.paulpitchford.garmin-activities",
-  "name": "Garmin Activities",
+  "id": "io.github.paulpitchford.garmin-insights",
+  "name": "Garmin Insights",
   "version": "0.1.0",
   "author": "Paul Pitchford",
   "license": "MIT",
@@ -15,7 +15,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Garmin Activities",
+    "displayName": "Garmin Insights",
     "description": "Recent Garmin Connect activity totals and per-type breakdowns.",
     "category": "Health",
     "allowMultiple": false,

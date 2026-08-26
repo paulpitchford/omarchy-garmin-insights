@@ -224,7 +224,7 @@ function connectionState(options) {
 function statusText(state, options) {
   if (state === "setup") return options.uvAvailable ? "Backend environment is not ready" : "Backend setup required"
   if (state === "unauthenticated") return "Connect Garmin to begin"
-  if (state === "loading") return "Loading Garmin activities"
+  if (state === "loading") return "Loading Garmin insights"
   if (state === "connected") return options.demoMode ? "Synthetic demo data" : "Connected"
   if (state === "stale") {
     if (options.cacheError === "missing") return "No cached summary is available"
@@ -234,14 +234,14 @@ function statusText(state, options) {
   if (state === "rateLimited") return "Garmin rate limit reached"
   if (state === "reconnect") return "Reconnect Garmin"
   if (state === "localError") return "Garmin backend reported an error"
-  return "Garmin activities"
+  return "Garmin insights"
 }
 
 function backendCommand(uvPath, sourceDir, pythonEnvironmentPath, extraArguments) {
   var command = [
     "/usr/bin/env", "UV_PROJECT_ENVIRONMENT=" + String(pythonEnvironmentPath),
     String(uvPath), "--directory", String(sourceDir), "run", "--locked", "--no-sync",
-    "omarchy-garmin-activities"
+    "omarchy-garmin-insights"
   ]
   for (var i = 0; i < extraArguments.length; i++) command.push(String(extraArguments[i]))
   return command

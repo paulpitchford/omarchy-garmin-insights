@@ -1,10 +1,10 @@
-# Garmin Activities for Omarchy
+# Garmin Insights for Omarchy
 
-Garmin Activities is an Omarchy Quattro bar plugin that shows recent Garmin Connect activity totals. It covers today and the last 7, 30, and 90 calendar days, with separate rows for each Garmin activity type.
+Garmin Insights is an Omarchy Quattro bar plugin that shows recent Garmin Connect activity totals. It covers today and the last 7, 30, and 90 calendar days, with separate rows for each Garmin activity type.
 
-![Garmin Activities panel showing fabricated demo data](preview.png)
+![Garmin Insights panel showing fabricated demo data](preview.png)
 
-The plugin ID is `io.github.paulpitchford.garmin-activities`.
+The plugin ID is `io.github.paulpitchford.garmin-insights`.
 
 ## What it does
 
@@ -36,19 +36,19 @@ The plugin only reads activity summaries. It does not upload, edit, schedule, or
 Review the repository before installing because Omarchy plugins run unsandboxed with your user account's permissions. Then add and enable it:
 
 ```bash
-omarchy plugin add https://github.com/paulpitchford/omarchy-garmin-activities.git --enable
+omarchy plugin add https://github.com/paulpitchford/omarchy-garmin-insights.git --enable
 ```
 
 The plugin checkout is stored at:
 
 ```text
-~/.config/omarchy/plugins/io.github.paulpitchford.garmin-activities
+~/.config/omarchy/plugins/io.github.paulpitchford.garmin-insights
 ```
 
-Left-click the Garmin bar item to open its panel, then select **Set up backend**. A visible terminal runs the locked dependency setup. The Python environment is stored outside the plugin checkout at:
+Left-click the Garmin Insights bar item to open its panel, then select **Set up backend**. A visible terminal runs the locked dependency setup. The Python environment is stored outside the plugin checkout at:
 
 ```text
-$XDG_CACHE_HOME/omarchy-garmin-activities/uv-environment
+$XDG_CACHE_HOME/omarchy-garmin-insights/uv-environment
 ```
 
 When `XDG_CACHE_HOME` is unset, the path starts at `~/.cache`.
@@ -62,13 +62,13 @@ A successful login starts the first refresh. The first refresh of each local cal
 Demo mode uses only fabricated data:
 
 ```bash
-omarchy bar set io.github.paulpitchford.garmin-activities demoMode true --json
+omarchy bar set io.github.paulpitchford.garmin-insights demoMode true --json
 ```
 
 Turn it off before connecting an account:
 
 ```bash
-omarchy bar set io.github.paulpitchford.garmin-activities demoMode false --json
+omarchy bar set io.github.paulpitchford.garmin-insights demoMode false --json
 ```
 
 ## Use
@@ -94,9 +94,9 @@ Settings can be changed through the Omarchy bar settings interface or with `omar
 Examples:
 
 ```bash
-omarchy bar set io.github.paulpitchford.garmin-activities period 30Days
-omarchy bar set io.github.paulpitchford.garmin-activities units metric
-omarchy bar set io.github.paulpitchford.garmin-activities refreshMinutes 60 --json
+omarchy bar set io.github.paulpitchford.garmin-insights period 30Days
+omarchy bar set io.github.paulpitchford.garmin-insights units metric
+omarchy bar set io.github.paulpitchford.garmin-insights refreshMinutes 60 --json
 ```
 
 ## Update
@@ -104,13 +104,13 @@ omarchy bar set io.github.paulpitchford.garmin-activities refreshMinutes 60 --js
 Update the Git checkout with Omarchy's reviewed update flow:
 
 ```bash
-omarchy plugin update io.github.paulpitchford.garmin-activities
+omarchy plugin update io.github.paulpitchford.garmin-insights
 ```
 
 Omarchy shows the incoming diff before fast-forwarding the checkout. If the update changes `pyproject.toml` or `uv.lock`, rerun the locked dependency setup in a visible terminal:
 
 ```bash
-PLUGIN_DIR="$HOME/.config/omarchy/plugins/io.github.paulpitchford.garmin-activities"
+PLUGIN_DIR="$HOME/.config/omarchy/plugins/io.github.paulpitchford.garmin-insights"
 if [[ ${XDG_CACHE_HOME:-} = /* ]]; then
   CACHE_ROOT="$XDG_CACHE_HOME"
 else
@@ -125,7 +125,7 @@ else
   UV_BIN="$HOME/.local/share/mise/shims/uv"
 fi
 
-UV_PROJECT_ENVIRONMENT="$CACHE_ROOT/omarchy-garmin-activities/uv-environment" \
+UV_PROJECT_ENVIRONMENT="$CACHE_ROOT/omarchy-garmin-insights/uv-environment" \
   "$UV_BIN" --directory "$PLUGIN_DIR" sync --locked --no-dev
 ```
 
@@ -134,13 +134,13 @@ UV_PROJECT_ENVIRONMENT="$CACHE_ROOT/omarchy-garmin-activities/uv-environment" \
 The panel runs routine commands through `uv run --locked --no-sync`. To run the same backend manually, prepare these variables in a terminal:
 
 ```bash
-PLUGIN_DIR="$HOME/.config/omarchy/plugins/io.github.paulpitchford.garmin-activities"
+PLUGIN_DIR="$HOME/.config/omarchy/plugins/io.github.paulpitchford.garmin-insights"
 if [[ ${XDG_CACHE_HOME:-} = /* ]]; then
   CACHE_ROOT="$XDG_CACHE_HOME"
 else
   CACHE_ROOT="$HOME/.cache"
 fi
-UV_PROJECT_ENVIRONMENT="$CACHE_ROOT/omarchy-garmin-activities/uv-environment"
+UV_PROJECT_ENVIRONMENT="$CACHE_ROOT/omarchy-garmin-insights/uv-environment"
 
 if [[ -x /usr/bin/uv ]]; then
   UV_BIN=/usr/bin/uv
@@ -153,7 +153,7 @@ fi
 backend() {
   UV_PROJECT_ENVIRONMENT="$UV_PROJECT_ENVIRONMENT" \
     "$UV_BIN" --directory "$PLUGIN_DIR" run --locked --no-sync \
-    omarchy-garmin-activities "$@"
+    omarchy-garmin-insights "$@"
 }
 ```
 
@@ -180,12 +180,12 @@ The backend applies standard XDG defaults when state, data, or cache variables a
 
 | Data | Path | Retention |
 |---|---|---|
-| Garmin tokens | `$XDG_STATE_HOME/omarchy-garmin-activities/auth/garmin_tokens.json` | Until logout or purge |
-| Account fingerprint | `$XDG_DATA_HOME/omarchy-garmin-activities/account_scope.json` | Until purge |
-| Normalised activities | `$XDG_DATA_HOME/omarchy-garmin-activities/activities.sqlite3` | Current rolling 90 days |
-| Interface summary | `$XDG_CACHE_HOME/omarchy-garmin-activities/summary.json` | Replaced after a successful refresh |
-| Refresh lock | `$XDG_RUNTIME_DIR/omarchy-garmin-activities/sync.lock` | Runtime coordination only |
-| Python environment | `$XDG_CACHE_HOME/omarchy-garmin-activities/uv-environment` | Until removed manually |
+| Garmin tokens | `$XDG_STATE_HOME/omarchy-garmin-insights/auth/garmin_tokens.json` | Until logout or purge |
+| Account fingerprint | `$XDG_DATA_HOME/omarchy-garmin-insights/account_scope.json` | Until purge |
+| Normalised activities | `$XDG_DATA_HOME/omarchy-garmin-insights/activities.sqlite3` | Current rolling 90 days |
+| Interface summary | `$XDG_CACHE_HOME/omarchy-garmin-insights/summary.json` | Replaced after a successful refresh |
+| Refresh lock | `$XDG_RUNTIME_DIR/omarchy-garmin-insights/sync.lock` | Runtime coordination only |
+| Python environment | `$XDG_CACHE_HOME/omarchy-garmin-insights/uv-environment` | Until removed manually |
 
 Defaults are `~/.local/state`, `~/.local/share`, and `~/.cache`. Private application data directories are secured to mode `0700`; private files use mode `0600`. Storage operations reject unsafe final symlinks, unexpected owners, non-regular files, and oversized private files.
 
@@ -200,7 +200,7 @@ See [SECURITY.md](SECURITY.md) for reporting instructions and the complete secur
 Disable the plugin before maintenance so its shared service does not start another refresh:
 
 ```bash
-omarchy plugin disable io.github.paulpitchford.garmin-activities
+omarchy plugin disable io.github.paulpitchford.garmin-insights
 ```
 
 To disconnect while retaining local activity data, run the [backend command setup](#backend-commands), then:
@@ -218,7 +218,7 @@ backend auth purge --confirm
 Remove the plugin checkout separately:
 
 ```bash
-omarchy plugin remove io.github.paulpitchford.garmin-activities
+omarchy plugin remove io.github.paulpitchford.garmin-insights
 ```
 
 Plugin removal intentionally leaves local data and the Python environment in place. To remove the dependency environment after purge and plugin removal:
@@ -229,7 +229,7 @@ if [[ ${XDG_CACHE_HOME:-} = /* ]]; then
 else
   CACHE_ROOT="$HOME/.cache"
 fi
-rm -rf -- "$CACHE_ROOT/omarchy-garmin-activities/uv-environment"
+rm -rf -- "$CACHE_ROOT/omarchy-garmin-insights/uv-environment"
 ```
 
 Purge leaves empty application directories and the runtime lock. They contain no Garmin data. You may remove empty directories with `rmdir`, and the runtime directory is normally cleared when the user session ends.
@@ -277,10 +277,10 @@ The QML service uses fixed executable paths and direct argument arrays:
 
 - `/usr/bin/test -x` checks the three accepted `uv` locations.
 - `/usr/bin/env` sets only `UV_PROJECT_ENVIRONMENT` for each backend process.
-- The selected `uv` runs `run --locked --no-sync omarchy-garmin-activities auth status --json` and `run --locked --no-sync omarchy-garmin-activities refresh --json` in the background.
+- The selected `uv` runs `run --locked --no-sync omarchy-garmin-insights auth status --json` and `run --locked --no-sync omarchy-garmin-insights refresh --json` in the background.
 - `/usr/share/omarchy/bin/omarchy-launch-terminal` opens visible setup and login terminals.
 - Setup runs `uv sync --locked --no-dev`.
-- Login runs `uv run --locked --no-sync omarchy-garmin-activities auth login`.
+- Login runs `uv run --locked --no-sync omarchy-garmin-insights auth login`.
 
 The Python backend does not start subprocesses. It reads and writes only the documented local paths and makes the documented Garmin requests.
 

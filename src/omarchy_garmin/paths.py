@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-APP_DIRECTORY = "omarchy-garmin-activities"
+APP_DIRECTORY = "omarchy-garmin-insights"
 TOKEN_FILE_NAME = "garmin_tokens.json"  # noqa: S105 - fixed filename, not a credential
 ACCOUNT_SCOPE_FILE_NAME = "account_scope.json"
 ACTIVITY_DATABASE_FILE_NAME = "activities.sqlite3"

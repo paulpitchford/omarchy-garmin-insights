@@ -1,4 +1,4 @@
-"""Command-line boundary for the Garmin Activities backend."""
+"""Command-line boundary for the Garmin Insights backend."""
 
 from __future__ import annotations
 
@@ -60,8 +60,8 @@ class _ArgumentParser(argparse.ArgumentParser):
 def _build_parser() -> argparse.ArgumentParser:
     """Create the command-line parser."""
     parser = _ArgumentParser(
-        prog="omarchy-garmin-activities",
-        description="Backend for the Garmin Activities Omarchy plugin",
+        prog="omarchy-garmin-insights",
+        description="Backend for the Garmin Insights Omarchy plugin",
     )
     parser.add_argument("--version", action="version", version=__version__)
 
@@ -117,7 +117,7 @@ def _write_human_doctor(stdout: TextIO, paths: AppPaths) -> None:
     """Write a concise, human-readable doctor response."""
     runtime = _path_text(paths.runtime) or "unavailable"
     stdout.write(
-        "Garmin Activities backend is ready.\n"
+        "Garmin Insights backend is ready.\n"
         f"Python: {platform.python_version()}\n"
         f"State: {paths.state}\n"
         f"Data: {paths.data}\n"
@@ -271,7 +271,7 @@ def _run_refresh(
         as_json=arguments.as_json,
         data=data,
         human_message=(
-            f"Garmin activities refreshed ({result.mode}, {result.fetched_count} stored, "
+            f"Garmin data refreshed ({result.mode}, {result.fetched_count} stored, "
             f"{result.deleted_count} removed)."
         ),
     )

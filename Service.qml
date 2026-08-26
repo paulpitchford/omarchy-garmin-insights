@@ -26,8 +26,8 @@ Item {
   readonly property string sourceDir: manifest && manifest.__sourceDir ? String(manifest.__sourceDir) : ""
   readonly property string homeDir: Quickshell.env("HOME")
   readonly property string cacheRoot: absoluteEnvironmentPath("XDG_CACHE_HOME", homeDir + "/.cache")
-  readonly property string summaryPath: cacheRoot + "/omarchy-garmin-activities/summary.json"
-  readonly property string pythonEnvironmentPath: cacheRoot + "/omarchy-garmin-activities/uv-environment"
+  readonly property string summaryPath: cacheRoot + "/omarchy-garmin-insights/summary.json"
+  readonly property string pythonEnvironmentPath: cacheRoot + "/omarchy-garmin-insights/uv-environment"
   readonly property var summary: demoMode ? Model.syntheticSummary(nowMs) : cachedSummary
   readonly property bool hasSummary: summary !== null
   readonly property double summaryAgeMs: hasSummary ? Math.max(0, nowMs - Number(summary.generatedMs || 0)) : 0
@@ -210,7 +210,7 @@ Item {
       uvPath,
       "--directory", sourceDir,
       "run", "--locked", "--no-sync",
-      "omarchy-garmin-activities", "auth", "login"
+      "omarchy-garmin-insights", "auth", "login"
     ])
     authPollTicks = 0
     authPollTimer.start()

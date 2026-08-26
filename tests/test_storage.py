@@ -23,7 +23,7 @@ def _mode(path: Path) -> int:
 
 
 def test_private_directory_is_created_with_owner_only_permissions(tmp_path: Path) -> None:
-    directory = tmp_path / "state" / "omarchy-garmin-activities"
+    directory = tmp_path / "state" / "omarchy-garmin-insights"
 
     result = ensure_private_directory(directory)
 

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "omarchy-garmin-activities"
+name = "omarchy-garmin-insights"
 version = "0.1.0"
 description = "Garmin activity summaries for the Omarchy bar"
 readme = "README.md"
@@ -26,11 +26,11 @@ dependencies = [
 ]
 
 [project.scripts]
-omarchy-garmin-activities = "omarchy_garmin.cli:main"
+omarchy-garmin-insights = "omarchy_garmin.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/paulpitchford/omarchy-garmin-activities"
-Issues = "https://github.com/paulpitchford/omarchy-garmin-activities/issues"
+Homepage = "https://github.com/paulpitchford/omarchy-garmin-insights"
+Issues = "https://github.com/paulpitchford/omarchy-garmin-insights/issues"
 
 [dependency-groups]
 dev = [

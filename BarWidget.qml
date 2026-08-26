@@ -5,7 +5,7 @@ import "Model.js" as Model
 
 BarWidget {
   id: root
-  moduleName: "io.github.paulpitchford.garmin-activities"
+  moduleName: "io.github.paulpitchford.garmin-insights"
 
   readonly property var service: bar && bar.shell ? bar.shell.serviceFor(moduleName) : null
   readonly property string selectedPeriodKey: String(setting("period", "7Days"))
@@ -77,7 +77,7 @@ BarWidget {
       var period = Model.periodLabel(root.selectedPeriodKey)
       var total = root.selectedPeriod ? Model.formatCount(root.activityCount) : "No cached summary"
       var status = root.service ? root.service.statusText : "Service loading"
-      return "Garmin · " + period + " · " + total + " · " + status
+      return "Garmin Insights · " + period + " · " + total + " · " + status
     }
 
     onPressed: function(buttonCode) {

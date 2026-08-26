@@ -335,7 +335,7 @@ wheels = [
 ]
 
 [[package]]
-name = "omarchy-garmin-activities"
+name = "omarchy-garmin-insights"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

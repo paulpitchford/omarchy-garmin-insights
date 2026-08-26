@@ -2,14 +2,14 @@
 
 ## Purpose
 
-Build and maintain a public Omarchy Quattro bar plugin that shows recent Garmin Connect activity summaries. The plugin must be useful to people with different activity types, devices, units, and amounts of recorded data.
+Build and maintain Garmin Insights for Omarchy, a public Quattro bar plugin that shows recent Garmin Connect activity summaries. The plugin must be useful to people with different activity types, devices, units, and amounts of recorded data.
 
 Keep this file current when architecture, security boundaries, development commands, or release rules change. Keep `README.md` accurate for users. Do not advertise incomplete behaviour as available.
 
 ## Project identity
 
-- Repository: `paulpitchford/omarchy-garmin-activities`
-- Permanent plugin ID: `io.github.paulpitchford.garmin-activities`
+- Repository: `paulpitchford/omarchy-garmin-insights`
+- Permanent plugin ID: `io.github.paulpitchford.garmin-insights`
 - Licence: MIT
 - Garmin client: `python-garminconnect`, used as a pinned external dependency
 - Omarchy namespace: never use the reserved `omarchy.*` prefix
@@ -35,7 +35,7 @@ Use these boundaries unless an approved design change updates this file:
 5. QML reads a bounded summary contract. It never reads tokens, raw Garmin responses, or SQLite.
 6. Store canonical measurements in SI units. Convert units only at presentation boundaries.
 7. The first release uses activity summary responses and does not download FIT files.
-8. The QML service accepts `uv` only from `/usr/bin/uv`, `~/.local/bin/uv`, or `~/.local/share/mise/shims/uv`. Routine backend commands use `uv run --locked --no-sync`; dependency setup is an explicit visible-terminal `uv sync --locked --no-dev` action. Set `UV_PROJECT_ENVIRONMENT` to `$XDG_CACHE_HOME/omarchy-garmin-activities/uv-environment` so dependency symlinks never enter the plugin checkout.
+8. The QML service accepts `uv` only from `/usr/bin/uv`, `~/.local/bin/uv`, or `~/.local/share/mise/shims/uv`. Routine backend commands use `uv run --locked --no-sync`; dependency setup is an explicit visible-terminal `uv sync --locked --no-dev` action. Set `UV_PROJECT_ENVIRONMENT` to `$XDG_CACHE_HOME/omarchy-garmin-insights/uv-environment` so dependency symlinks never enter the plugin checkout.
 
 The manifest kinds are `service` and `bar-widget`. The bar widget owns its nested details panel. Forward the panel lifecycle expected by Omarchy, including `opened`, `open()`, `close()`, `toggle()`, and `closeForPopoutSwitch()`.
 
@@ -55,10 +55,10 @@ The manifest kinds are `service` and `bar-widget`. The bar widget owns its neste
 Planned storage:
 
 ```text
-$XDG_STATE_HOME/omarchy-garmin-activities/auth/garmin_tokens.json
-$XDG_DATA_HOME/omarchy-garmin-activities/activities.sqlite3
-$XDG_CACHE_HOME/omarchy-garmin-activities/summary.json
-$XDG_RUNTIME_DIR/omarchy-garmin-activities/sync.lock
+$XDG_STATE_HOME/omarchy-garmin-insights/auth/garmin_tokens.json
+$XDG_DATA_HOME/omarchy-garmin-insights/activities.sqlite3
+$XDG_CACHE_HOME/omarchy-garmin-insights/summary.json
+$XDG_RUNTIME_DIR/omarchy-garmin-insights/sync.lock
 ```
 
 Apply the usual XDG defaults when an environment variable is unset.

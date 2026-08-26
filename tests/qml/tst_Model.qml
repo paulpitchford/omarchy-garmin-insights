@@ -136,7 +136,7 @@ TestCase {
       "run",
       "--locked",
       "--no-sync",
-      "omarchy-garmin-activities",
+      "omarchy-garmin-insights",
       "auth",
       "status",
       "--json"

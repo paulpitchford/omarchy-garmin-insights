@@ -7,7 +7,7 @@ import "Model.js" as Model
 
 Panel {
   id: root
-  moduleName: "io.github.paulpitchford.garmin-activities"
+  moduleName: "io.github.paulpitchford.garmin-insights"
   manageIpc: false
 
   property var service: null
@@ -110,9 +110,9 @@ Panel {
 
           PanelHero {
             width: parent.width
-            title: "Garmin Activities"
+            title: "Garmin Insights"
             meta: root.service ? root.service.statusText : "Service loading"
-            detail: root.service && root.service.demoMode ? "DEMO" : ""
+            detail: root.service && root.service.demoMode ? "UNOFFICIAL · DEMO" : "UNOFFICIAL"
             foreground: root.foreground
             fontFamily: root.fontFamily
             iconComponent: Component {
