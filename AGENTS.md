@@ -137,6 +137,7 @@ Use Ruff for formatting and linting, mypy in strict mode for static typing, pyte
 - Treat all remote strings as display text. Never turn activity names or errors into commands, markup, paths, or URLs without strict validation.
 - Keep panel switching, Escape handling, focus, hover, and keyboard navigation consistent with built-in panels.
 - Test more than one monitor or emulate multiple widget instances before release.
+- After a Git plugin update and any required dependency sync, restart the Omarchy shell. A plugin rescan or watched-file reload does not reliably replace loaded QML components and singleton services. Upgrade tests must verify the running shell was replaced and the new interface loaded, not only that the checkout moved.
 
 Validate plugin changes with:
 
@@ -148,7 +149,7 @@ qmllint -I "$OMARCHY_PATH/shell" \
   "$PLUGIN_DIR/Service.qml"
 ```
 
-Also test shell summon and hide, click behaviour, disable and enable, shell restart, dependency absence, authentication expiry, offline startup, rate limiting, and removal.
+Also test shell summon and hide, click behaviour, disable and enable, the required post-update shell restart, dependency absence, authentication expiry, offline startup, rate limiting, and removal.
 
 ## Documentation
 

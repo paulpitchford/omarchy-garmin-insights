@@ -132,6 +132,14 @@ omarchy plugin update io.github.paulpitchford.garmin-insights
 
 The command fetches the repository's default branch. If there are changes, Omarchy shows the diff and asks for confirmation, performs a fast-forward-only update, validates the resulting plugin, and tells the shell to rescan plugins. A validation failure is rolled back automatically. Local changes inside the installed checkout can prevent a fast-forward, so treat that checkout as managed code rather than a customization directory.
 
+A rescan does not reliably replace QML components and singleton services that are already loaded. After updating, complete any dependency sync described below, then restart the shell:
+
+```bash
+omarchy restart shell
+```
+
+The restart replaces the existing Quickshell process; it does not start a second shell. Bar settings and Garmin data remain in their separate configuration and XDG paths.
+
 Release tags provide auditable version points, but the default branch is the delivery channel used by `omarchy plugin update`. Changes are therefore developed and reviewed on branches, and the default branch must remain installable. The permanent plugin ID keeps bar settings attached to the plugin, while tokens, account scope, the activity database, and the summary cache remain in their separate XDG locations during code updates.
 
 Before 0.1, the roadmap adds optional update awareness to the top-level panel. A supported Git-managed checkout will compare its local commit with the fixed public default branch no more than once per 24 hours. A different commit will show **Update available** and a **Review update** action. That action will open the existing Omarchy command in a visible terminal, where the user still sees the diff and confirmation prompt. The plugin will not fetch and merge its own code. The check is planned to be enabled by default with an explicit setting to turn it off. Its unauthenticated request to GitHub will be documented before the feature is enabled.
@@ -156,6 +164,7 @@ fi
 
 UV_PROJECT_ENVIRONMENT="$CACHE_ROOT/omarchy-garmin-insights/uv-environment" \
   "$UV_BIN" --directory "$PLUGIN_DIR" sync --locked --no-dev
+omarchy restart shell
 ```
 
 ## Backend commands
@@ -318,6 +327,16 @@ The QML service uses fixed executable paths and direct argument arrays:
 The Python backend does not start subprocesses. It reads and writes only the documented local paths and makes the documented Garmin requests.
 
 ## Troubleshooting
+
+### Updated files but old interface
+
+If `omarchy plugin update` reports success but the panel still shows the previous interface, run:
+
+```bash
+omarchy restart shell
+```
+
+Plugin rescanning and file watching do not reliably evict QML components that are already loaded. Confirm the installed checkout moved to the expected commit as well as checking the visible interface.
 
 ### Backend setup required
 
