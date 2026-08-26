@@ -22,7 +22,7 @@ Keep this file current when architecture, security boundaries, development comma
 - The plugin is read-only with respect to Garmin. Do not call upload, edit, scheduling, hydration, weigh-in, or deletion methods.
 - Do not edit packaged files under `/usr/share/omarchy/`. Use the user plugin directory while testing.
 - Do not launch a second Quickshell process from the plugin.
-- Do not add telemetry, analytics, advertising, or remote services other than the documented Garmin requests and package sources.
+- Do not add telemetry, analytics, advertising, or remote services other than the documented Garmin requests, package sources, and fixed public Git update check.
 
 ## Architecture
 
@@ -31,8 +31,8 @@ Use these boundaries unless an approved design change updates this file:
 1. `Service.qml` is the singleton owner of scheduling, process state, cached summaries, and errors.
 2. `BarWidget.qml` and its nested `Panel.qml` render state from the singleton service. They do not authenticate, query Garmin, or aggregate activities.
 3. The Python backend is a short-lived command. There is no persistent Python daemon or systemd service.
-4. Python owns authentication, Garmin requests, validation, SQLite, aggregation, and JSON generation.
-5. QML reads bounded summary, activity-list, and activity-detail contracts. It never reads tokens, raw Garmin responses, or SQLite.
+4. Python owns authentication, Garmin requests, validation, SQLite, aggregation, display JSON generation, and private update-cadence metadata.
+5. QML reads bounded summary, activity-list, activity-detail, and update-check contracts. It never reads tokens, raw Garmin responses, or SQLite. The singleton service may run bounded `/usr/bin/git` commands only for the fixed public update check documented below.
 6. Store canonical measurements in SI units. Convert units only at presentation boundaries.
 7. The first release uses activity summary responses and does not download FIT files.
 8. The QML service accepts `uv` only from `/usr/bin/uv`, `~/.local/bin/uv`, or `~/.local/share/mise/shims/uv`. Before invoking uv, `/usr/bin/python3` runs the stdlib-only tracked cache bootstrap to secure the application cache root as `0700`. Routine backend commands use `uv run --locked --no-sync`; dependency setup is an explicit visible-terminal `uv sync --locked --no-dev` action. Set `UV_PROJECT_ENVIRONMENT` to `$XDG_CACHE_HOME/omarchy-garmin-insights/uv-environment` so dependency symlinks never enter the plugin checkout.
@@ -58,7 +58,9 @@ Planned storage:
 $XDG_STATE_HOME/omarchy-garmin-insights/auth/garmin_tokens.json
 $XDG_DATA_HOME/omarchy-garmin-insights/activities.sqlite3
 $XDG_CACHE_HOME/omarchy-garmin-insights/summary.json
+$XDG_CACHE_HOME/omarchy-garmin-insights/update-check.json
 $XDG_RUNTIME_DIR/omarchy-garmin-insights/sync.lock
+$XDG_RUNTIME_DIR/omarchy-garmin-insights/update-check.lock
 ```
 
 Apply the usual XDG defaults when an environment variable is unset.
@@ -130,6 +132,7 @@ Use Ruff for formatting and linting, mypy in strict mode for static typing, pyte
 - Keep business logic and aggregation out of QML.
 - Use one service instance to prevent duplicate Garmin requests on multi-monitor setups.
 - Run background processes with direct argument arrays and fixed executable paths.
+- Update awareness may query only `https://github.com/paulpitchford/omarchy-garmin-insights.git` and `refs/heads/main` with `/usr/bin/git`. It must validate the supported install path, branch, origin, local and remote commits, 24-hour cadence, output bounds, deadline, and no-overlap guard. It never updates the checkout itself.
 - Apply process deadlines and bounded output collection. Prevent overlapping refreshes.
 - Keep authentication in a terminal. Never build password or MFA controls inside the long-lived shell.
 - Use Omarchy's `qs.Commons` and `qs.Ui` components, theme colours, spacing, typography, panel coordination, keyboard handling, and accessibility patterns.

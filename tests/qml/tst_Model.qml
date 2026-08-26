@@ -186,6 +186,66 @@ TestCase {
     compare(Model.garminConnectUrl("9223372036854775808"), "")
   }
 
+  function test_update_commit_parsers_accept_only_fixed_bounded_forms() {
+    var local = "1".repeat(40)
+    var remote = "2".repeat(40)
+    compare(Model.parseLocalCommit(local + "\n"), local)
+    compare(Model.parseRemoteCommit(remote + "\trefs/heads/main\n"), remote)
+    compare(Model.parseLocalCommit("A".repeat(40)), "")
+    compare(Model.parseRemoteCommit(remote + "\trefs/heads/other"), "")
+    compare(Model.parseRemoteCommit("x".repeat(97)), "")
+    compare(Model.parseRemoteCommit(remote + "\trefs/heads/main\nhostile"), "")
+  }
+
+  function test_update_claim_parser_restores_only_matching_valid_commits() {
+    var local = "1".repeat(40)
+    var remote = "2".repeat(40)
+    var claim = {
+      due: false,
+      localCommit: local,
+      remoteCommit: remote,
+      schemaVersion: 1
+    }
+    var result = Model.parseUpdateClaim(JSON.stringify(claim), local)
+    verify(result !== null)
+    compare(result.remoteCommit, remote)
+    verify(Model.commitsDiffer(local, result.remoteCommit))
+
+    claim.localCommit = "3".repeat(40)
+    compare(Model.parseUpdateClaim(JSON.stringify(claim), local), null)
+    claim.localCommit = local
+    claim.remoteCommit = "https://hostile.example"
+    compare(Model.parseUpdateClaim(JSON.stringify(claim), local), null)
+    claim.remoteCommit = remote
+    claim.command = "/bin/sh"
+    compare(Model.parseUpdateClaim(JSON.stringify(claim), local), null)
+  }
+
+  function test_update_claim_parser_rejects_empty_malformed_and_oversized_output() {
+    var local = "1".repeat(40)
+    compare(Model.parseUpdateClaim("", local), null)
+    compare(Model.parseUpdateClaim("not-json", local), null)
+    compare(Model.parseUpdateClaim("x".repeat(513), local), null)
+  }
+
+  function test_equal_update_commits_do_not_show_availability() {
+    var commit = "1".repeat(40)
+    verify(!Model.commitsDiffer(commit, commit))
+    verify(!Model.commitsDiffer(commit, ""))
+  }
+
+  function test_update_version_and_review_command_are_fixed() {
+    compare(Model.safeVersion("0.1.0"), "0.1.0")
+    compare(Model.safeVersion("<b>hostile</b>"), "Unknown")
+    compare(Model.updateReviewCommand(), [
+      "/usr/share/omarchy/bin/omarchy-launch-terminal",
+      "/usr/bin/omarchy",
+      "plugin",
+      "update",
+      "io.github.paulpitchford.garmin-insights"
+    ])
+  }
+
   function test_synthetic_activity_counts_match_summary_periods() {
     compare(Model.syntheticActivityPage("today", "2026-08-26", null, 0).activities.length, 1)
     compare(Model.syntheticActivityPage("7Days", "2026-08-26", null, 0).activities.length, 4)

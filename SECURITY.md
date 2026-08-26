@@ -23,8 +23,9 @@ The implementation must:
 - use direct process argument arrays for background commands;
 - bound subprocess runtime and output;
 - use an owner-only runtime directory for locks;
-- pin Python dependencies in a reviewed lockfile; and
-- require explicit confirmation before logout or local data deletion.
+- pin Python dependencies in a reviewed lockfile;
+- query only the fixed public repository when update checks are enabled; and
+- require explicit confirmation before logout, local data deletion, or a code update.
 
 The plugin does not download FIT files and does not upload, edit, or delete Garmin account data.
 
@@ -34,7 +35,7 @@ Authentication uses the PyPI release of `python-garminconnect` pinned in `pyproj
 
 Tokens are stored at `$XDG_STATE_HOME/omarchy-garmin-insights/auth/garmin_tokens.json`. The application directories use mode `0700`, and private files use mode `0600`. Reads and removals reject symlinks, non-regular files, unexpected owners, and oversized content. The backend stores a pseudonymous account fingerprint separately so tokens for another account cannot be used with existing local activity data.
 
-`auth logout --confirm` removes only the token file. `auth purge --confirm` removes the token, account scope, and all other allowlisted plugin data files. Neither command makes a Garmin request or revokes server-side tokens. Login, logout, and purge use the activity lock when a private runtime directory is available, so they cannot race a refresh.
+`auth logout --confirm` removes only the token file. `auth purge --confirm` removes the token, account scope, activities, and Garmin summary cache. Neither command makes a Garmin request or revokes server-side tokens. Login, logout, and purge use the activity lock when a private runtime directory is available, so they cannot race a refresh.
 
 ## Current synchronization boundary
 
@@ -43,6 +44,12 @@ Tokens are stored at `$XDG_STATE_HOME/omarchy-garmin-insights/auth/garmin_tokens
 The backend validates a maximum of 20,000 activities per refresh. It keeps only reviewed summary fields and drops every other response field before persistence. The SQLite database contains no coordinates, routes, maps, raw responses, account IDs, or email addresses. Reconciliation and deletion happen in one transaction, and full reconciliations retain only the rolling 90-day window.
 
 Activity drill-down reads SQLite locally in fixed pages of at most 20 and returns a separate bounded detail contract. These commands do not authenticate, refresh, or contact Garmin. They expose only allowlisted fields, never complete URLs or location data. The browser action accepts a validated decimal activity ID and constructs the fixed Garmin Connect HTTPS destination in QML.
+
+## Current update boundary
+
+Update checks are optional and enabled by default. They run only for the documented Git-managed install path, `main` branch, and exact public HTTPS origin. The service reads the local commit and runs a bounded `/usr/bin/git ls-remote` query against `https://github.com/paulpitchford/omarchy-garmin-insights.git` and `refs/heads/main`. Git configuration rewrites and interactive credential prompts are disabled for the query. No Garmin token, account data, activity data, analytics identifier, or telemetry is sent.
+
+The private update cache stores only the last-attempt timestamp and validated public commit IDs. Automatic checks run at most once per 24 hours. Failures do not alter Garmin state or cached activities. The plugin never fetches, merges, or edits its checkout. **Review update** opens Omarchy's terminal update flow without `--yes`, so the user sees the diff and confirms the fast-forward update. A shell restart is required after an accepted update and any dependency sync.
 
 ## Supported versions
 
