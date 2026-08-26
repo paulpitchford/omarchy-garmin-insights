@@ -101,7 +101,7 @@ def atomic_write_private(path: Path, content: bytes) -> None:
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary_path = Path(temporary_name)
     try:
-        with os.fdopen(descriptor, "wb") as temporary_file:
+        with os.fdopen(descriptor, "wb", closefd=False) as temporary_file:
             os.fchmod(temporary_file.fileno(), PRIVATE_FILE_MODE)
             temporary_file.write(content)
             temporary_file.flush()
@@ -110,5 +110,6 @@ def atomic_write_private(path: Path, content: bytes) -> None:
         temporary_path.replace(path)
         _sync_directory(path.parent)
     finally:
+        os.close(descriptor)
         with suppress(FileNotFoundError):
             temporary_path.unlink()

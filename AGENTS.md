@@ -158,13 +158,29 @@ Also test shell summon and hide, click behaviour, disable and enable, shell rest
 
 Document every executable command, network destination, external dependency, storage location, permission boundary, and cleanup step before release.
 
+## Code review
+
+Automated checks are necessary but do not replace code review. Every implementation batch after the initial bootstrap must use a branch and pull request, including changes authored by an AI agent.
+
+Review the complete diff in a separate pass after implementation. The review must:
+
+- list findings by severity with file and line references;
+- check correctness, security, privacy, failure behaviour, concurrency, data migration, public contracts, tests, and documentation as applicable;
+- compare the implementation with `AGENTS.md`, the local plan, and the relevant Python or Omarchy references;
+- distinguish a real defect from an optional improvement;
+- record why any security-sensitive warning or structural-analysis result is accepted; and
+- rerun applicable checks after review fixes.
+
+Do not merge with unresolved high- or medium-severity findings. Record the review in the pull request even when it finds no defects. Be explicit when the reviewer is the author performing a separate self-review rather than an independent reviewer.
+
 ## Change workflow
 
 1. Run `git status --short --branch` before editing.
-2. Read the relevant source, tests, and nearby patterns.
-3. Make the smallest coherent change.
-4. Add or update tests with behaviour changes.
-5. Run focused checks during development, then the full suite before commit:
+2. Create a focused branch. Do not implement directly on `main`.
+3. Read the relevant source, tests, and nearby patterns.
+4. Make the smallest coherent change.
+5. Add or update tests with behaviour changes.
+6. Run focused checks during development, then the full suite before commit:
 
    ```bash
    uv run ruff format --check .
@@ -174,10 +190,12 @@ Document every executable command, network destination, external dependency, sto
    uv run pyscn check --max-complexity 12 --max-cycles 0 src
    ```
 
-6. Run `git diff --check` and review the complete diff.
-7. Confirm that no secret, private data, generated environment, local database, or ignored personal file is staged.
-8. Use a concise imperative commit subject.
-9. Do not push, publish a release, submit to a marketplace, or change repository visibility without the owner's explicit approval.
+7. Run `git diff --check` and review the complete diff.
+8. Confirm that no secret, private data, generated environment, local database, or ignored personal file is staged.
+9. Use a concise imperative commit subject.
+10. Push the branch, open a pull request, and perform the separate review described above.
+11. Merge only after CI passes and review findings are resolved.
+12. Do not publish a release, submit to a marketplace, or change repository visibility without the owner's explicit approval.
 
 Do not rewrite unrelated code, weaken a test to make it pass, suppress a security finding without fixing its cause, or claim a check passed when it was not run.
 
