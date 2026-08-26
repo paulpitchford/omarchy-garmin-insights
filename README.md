@@ -3,7 +3,7 @@
 Garmin Activities for Omarchy is a planned bar plugin for viewing recent Garmin Connect activity totals. It will cover today and the last 7, 30, and 90 calendar days, with breakdowns that respect the differences between cycling, running, walking, swimming, strength training, and other activity types.
 
 > [!IMPORTANT]
-> This project is pre-alpha and is not installable as an Omarchy plugin yet. The Python project, quality checks, XDG path resolution, and initial CLI contract are in place. Garmin connectivity and the QML interface have not been implemented.
+> This project is pre-alpha and is not installable as an Omarchy plugin yet. The Python project, quality checks, XDG path resolution, and versioned CLI success and error contracts are in place. Garmin connectivity and the QML interface have not been implemented.
 
 The intended plugin ID is `io.github.paulpitchford.garmin-activities`.
 
@@ -29,6 +29,8 @@ Omarchy runs plugins inside one long-lived Quickshell process. This plugin will 
 The Python backend will use a locked `uv` environment. It will authenticate, fetch read-only activity summaries, normalise an explicit allowlist of fields, update SQLite, and generate a bounded JSON summary for QML. QML will not read credentials, raw Garmin responses, or SQLite directly.
 
 The planned default refresh interval is 30 minutes. Recent data will refresh incrementally, with a full 90-day reconciliation once per day. Authentication failures and Garmin rate limits will stop automatic retries and leave the last successful summary available.
+
+Machine-readable commands use a versioned JSON envelope. Errors contain only a reviewed code and fixed safe message; unexpected exception text and command arguments are not reflected in output. Process statuses are grouped by category: `0` for success, `2` for invalid arguments, `10` for configuration, `20` for authentication, `30` for network or remote-service failures, `40` for invalid data, `50` for local storage, `60` for concurrency, and `70` for unexpected internal failures. Some categories are reserved for commands implemented in later phases.
 
 ## Privacy and security
 
@@ -87,7 +89,7 @@ GitHub Actions runs the same formatting, linting, typing, testing, coverage, and
 
 ## Project status
 
-The repository now has a typed Python package, a versioned JSON command contract, XDG path resolution, owner-only directory and atomic file primitives, tests, locked development tooling, and CI. The next backend work is the mocked Garmin authentication boundary. Installation instructions will be added only when setup can complete and the plugin can display cached activity summaries safely.
+The repository now has a typed Python package, versioned JSON success and error contracts, stable grouped exit statuses, XDG path resolution, owner-only directory and atomic file primitives, tests, locked development tooling, and CI. The next backend work is the mocked Garmin authentication boundary. Installation instructions will be added only when setup can complete and the plugin can display cached activity summaries safely.
 
 ## Disclaimer
 
