@@ -89,7 +89,7 @@ The initially reviewed skill revision is `5202c854f211dff8f5255fa78691c193c8b26a
 
 ## Python standards
 
-- Support Python 3.12 or newer, subject to the pinned Garmin dependency.
+- Support Python 3.12 and 3.13. Keep `requires-python`, `.python-version`, Ruff, mypy, CI, and user documentation aligned when that range changes.
 - Use a standard `src/` package layout and a small CLI entry point.
 - Add type hints to application code. Keep the type checker strict and narrow exceptions at untyped dependency boundaries.
 - Prefer small modules with explicit responsibilities. Keep network, filesystem, clock, authentication, database, and presentation-contract boundaries injectable for tests.
@@ -119,7 +119,7 @@ Before adding or updating a dependency:
 
 Do not use `curl | sh`, unpinned Git execution, install hooks, vendored executable binaries, passwordless sudo rules, or background privilege escalation. The plugin must not require root privileges at runtime.
 
-Use Ruff for formatting and linting, mypy in strict mode for static typing, pytest for tests, and pyscn for structural analysis. Structure tests around observable behaviour, mock external boundaries with faithful interfaces, keep fixtures narrowly scoped, and use readable parameter IDs. Add coverage thresholds once the first executable modules exist. Security-sensitive modules require tests for failure paths, permissions, malformed input, symlinks, traversal, concurrency, redaction, and interrupted writes.
+Use Ruff for formatting and linting, mypy in strict mode for static typing, pytest for tests, and pyscn for structural analysis. Structure tests around observable behaviour, mock external boundaries with faithful interfaces, keep fixtures narrowly scoped, and use readable parameter IDs. Maintain branch coverage of at least 90%. Security-sensitive modules require tests for failure paths, permissions, malformed input, symlinks, traversal, concurrency, redaction, and interrupted writes.
 
 ## QML and Omarchy standards
 
@@ -164,7 +164,16 @@ Document every executable command, network destination, external dependency, sto
 2. Read the relevant source, tests, and nearby patterns.
 3. Make the smallest coherent change.
 4. Add or update tests with behaviour changes.
-5. Run focused checks during development, then the full suite before commit.
+5. Run focused checks during development, then the full suite before commit:
+
+   ```bash
+   uv run ruff format --check .
+   uv run ruff check .
+   uv run mypy src tests
+   uv run pytest
+   uv run pyscn check --max-complexity 12 --max-cycles 0 src
+   ```
+
 6. Run `git diff --check` and review the complete diff.
 7. Confirm that no secret, private data, generated environment, local database, or ignored personal file is staged.
 8. Use a concise imperative commit subject.

@@ -3,7 +3,7 @@
 Garmin Activities for Omarchy is a planned bar plugin for viewing recent Garmin Connect activity totals. It will cover today and the last 7, 30, and 90 calendar days, with breakdowns that respect the differences between cycling, running, walking, swimming, strength training, and other activity types.
 
 > [!IMPORTANT]
-> This project is at the design stage and is not installable yet. There is no working plugin or release.
+> This project is pre-alpha and is not installable as an Omarchy plugin yet. The Python project, quality checks, XDG path resolution, and initial CLI contract are in place. Garmin connectivity and the QML interface have not been implemented.
 
 The intended plugin ID is `io.github.paulpitchford.garmin-activities`.
 
@@ -58,13 +58,36 @@ Dependency versions and transitive packages will be committed in `uv.lock`. The 
 
 ## Development
 
-The repository will require Python 3.12 or newer, `uv`, Omarchy Quattro, and Quickshell development tools. Exact setup, test, lint, and QML validation commands will be added with the first implementation.
+The Python backend targets Python 3.12 and 3.13. The checked-in `.python-version` selects Python 3.13 for development, and `uv` can install it when needed.
 
-Code is expected to pass automated Python tests, static typing, formatting and lint checks, `omarchy plugin validate`, and `qmllint`. The project rules are in [AGENTS.md](AGENTS.md).
+Set up the locked environment:
+
+```bash
+uv sync --locked --dev
+```
+
+Run the complete local quality suite:
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy src tests
+uv run pytest
+uv run pyscn check --max-complexity 12 --max-cycles 0 src
+```
+
+Inspect the current backend contract:
+
+```bash
+uv run --locked omarchy-garmin-activities doctor
+uv run --locked omarchy-garmin-activities doctor --json
+```
+
+GitHub Actions runs the same formatting, linting, typing, testing, coverage, and structural checks. Omarchy validation and `qmllint` will join the suite when the QML plugin files exist. The project rules are in [AGENTS.md](AGENTS.md).
 
 ## Project status
 
-The current work is limited to architecture, security decisions, and repository policy. Installation instructions will be added only when the plugin can complete its setup and display cached activity summaries safely.
+The repository now has a typed Python package, a versioned JSON command contract, XDG path resolution, tests, locked development tooling, and CI. The next backend work is private directory creation and atomic file handling, followed by the mocked Garmin authentication boundary. Installation instructions will be added only when setup can complete and the plugin can display cached activity summaries safely.
 
 ## Disclaimer
 

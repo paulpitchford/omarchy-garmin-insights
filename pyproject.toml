@@ -1,0 +1,115 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "omarchy-garmin-activities"
+version = "0.1.0"
+description = "Garmin activity summaries for the Omarchy bar"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = "MIT"
+authors = [
+  { name = "Paul Pitchford" },
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.scripts]
+omarchy-garmin-activities = "omarchy_garmin.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/paulpitchford/omarchy-garmin-activities"
+Issues = "https://github.com/paulpitchford/omarchy-garmin-activities/issues"
+
+[dependency-groups]
+dev = [
+  "mypy>=2.3.1",
+  "pyscn>=1.29.1",
+  "pytest>=9.1.1",
+  "pytest-cov>=7.1.0",
+  "ruff>=0.16.4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/omarchy_garmin"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+  "B",
+  "BLE",
+  "C4",
+  "D",
+  "DTZ",
+  "E",
+  "F",
+  "I",
+  "PERF",
+  "PIE",
+  "PTH",
+  "RUF",
+  "S",
+  "SIM",
+  "T20",
+  "UP",
+  "W",
+]
+
+[tool.ruff.lint.flake8-bandit]
+check-typed-exception = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+  "D",
+  "S101",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+pretty = true
+show_error_codes = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+  "--strict-config",
+  "--strict-markers",
+  "--tb=short",
+  "-ra",
+  "--cov=omarchy_garmin",
+  "--cov-branch",
+  "--cov-report=term-missing",
+  "--cov-fail-under=90",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+branch = true
+source = ["omarchy_garmin"]
+omit = ["*/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+]
