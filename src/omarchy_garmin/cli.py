@@ -161,12 +161,14 @@ def _default_refresh_operations(paths: AppPaths) -> RefreshOperations:
     """Build activity synchronization dependencies at the process composition root."""
     from omarchy_garmin.database import ActivityRepository
     from omarchy_garmin.garmin_gateway import GarminActivityGateway
+    from omarchy_garmin.summary import SummaryCache
 
     return ActivitySyncService(
         paths=paths,
         auth_store=AuthStore(paths),
         gateway=GarminActivityGateway(),
         repository=ActivityRepository(paths.activity_database),
+        summary=SummaryCache(paths.summary_file),
     )
 
 

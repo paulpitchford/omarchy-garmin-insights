@@ -3,7 +3,7 @@
 Garmin Activities for Omarchy is a planned bar plugin for viewing recent Garmin Connect activity totals. It will cover today and the last 7, 30, and 90 calendar days, with breakdowns that respect the differences between cycling, running, walking, swimming, strength training, and other activity types.
 
 > [!IMPORTANT]
-> This project is pre-alpha and is not installable as an Omarchy plugin yet. The Python backend can authenticate with Garmin and synchronize recent activities. The bounded summary cache and QML interface have not been implemented.
+> This project is pre-alpha and is not installable as an Omarchy plugin yet. The Python backend can authenticate with Garmin, synchronize recent activities, and write the bounded summary cache. The QML interface has not been implemented.
 
 The intended plugin ID is `io.github.paulpitchford.garmin-activities`.
 
@@ -26,7 +26,7 @@ The plugin will not upload, edit, or delete Garmin data.
 
 Omarchy runs plugins inside one long-lived Quickshell process. This plugin will use a singleton QML service for scheduling and shared state, plus a bar widget and its panel. The service will run a short-lived Python command when data needs refreshing. There will be no Python daemon or systemd service.
 
-The Python backend uses a locked `uv` environment. Authentication, activity fetching, and SQLite storage are implemented. The bounded QML summary is still planned. QML will not read credentials, raw Garmin responses, or SQLite directly.
+The Python backend uses a locked `uv` environment. Authentication, activity fetching, SQLite storage, and the bounded JSON summary cache are implemented. QML will read that cache rather than credentials, raw Garmin responses, or SQLite.
 
 A refresh uses a seven-day overlap unless the current local date has no successful full reconciliation. In that case, it fetches the current 90-day window. Full reconciliations remove records that have aged out of that window. The Garmin call has one retry for transient network or server failures and a 120-second deadline for the complete request. Authentication failures and HTTP 429 responses fail without a retry. The QML service will eventually run this command every 30 minutes and keep the last successful summary available when a refresh fails.
 
@@ -50,7 +50,17 @@ uv run --locked omarchy-garmin-activities refresh --json
 uv run --locked omarchy-garmin-activities refresh --json --full
 ```
 
-`refresh` requires stored tokens and an absolute `XDG_RUNTIME_DIR`. It acquires a non-blocking owner-only lock, so two refresh processes cannot overlap. The first refresh each local day is a full reconciliation; `--full` requests one explicitly. A failed fetch, malformed response, account mismatch, or interrupted database transaction leaves the previous activity rows intact.
+`refresh` requires stored tokens and an absolute `XDG_RUNTIME_DIR`. It acquires a non-blocking owner-only lock, so two refresh processes cannot overlap. The first refresh each local day is a full reconciliation; `--full` requests one explicitly. A failed fetch, malformed response, account mismatch, or interrupted database transaction leaves the previous activity rows intact. After reconciliation, the command rebuilds the complete 90-day summary and atomically replaces the previous cache.
+
+## Summary cache contract
+
+The summary cache is versioned separately from the CLI envelope. Schema version 1 contains today, 7-day, 30-day, and 90-day periods. Each period has overall totals and breakdowns by Garmin's original activity type key. Type keys are kept as display text, including unfamiliar values; the cache does not group them into a different stored type.
+
+The first contract includes activity count, duration, moving duration, distance, elevation gain, energy, average and maximum heart rate, average speed, average power, sets, and repetitions. Measurements remain in SI units. Every metric includes a `contributingActivityCount`. A metric is `null` when no activity supplied a usable value, and missing measurements never add zero to a total.
+
+Average heart rate and average power are weighted by activity duration. Average speed is weighted by moving duration. Values without a positive matching duration do not contribute to those weighted averages. Maximum heart rate is the highest supplied value. Other measurements are sums of supplied values.
+
+The cache is limited to 20,000 activities, 256 original type keys, and 1 MiB of JSON. It does not contain activity names, Garmin activity IDs, start times, coordinates, or routes.
 
 ## Privacy and security
 
@@ -60,6 +70,7 @@ Garmin activity data can reveal routines, health information, and location. The 
 - Only Garmin tokens are retained. They are stored at `$XDG_STATE_HOME/omarchy-garmin-activities/auth/garmin_tokens.json` with owner-only permissions.
 - A pseudonymous account fingerprint is stored at `$XDG_DATA_HOME/omarchy-garmin-activities/account_scope.json` to prevent data from two accounts being merged. The raw Garmin account identifier, email address, and profile response are not saved.
 - Normalised activity data is stored at `$XDG_DATA_HOME/omarchy-garmin-activities/activities.sqlite3` with owner-only permissions. The current 90-day window is retained.
+- Aggregates for the QML interface are stored at `$XDG_CACHE_HOME/omarchy-garmin-activities/summary.json` with owner-only permissions. The cache excludes activity names, identifiers, and start times.
 - The allowlisted activity fields are the Garmin activity ID, optional name, original type key, local start time and date, duration, moving duration, distance, elevation gain, energy, average and maximum heart rate, average speed, average power, total sets, and total repetitions. Energy is converted from Garmin kilocalories to joules; other measurements remain in their canonical stored units.
 - Complete Garmin API responses are not saved.
 - Coordinates, routes, profile responses, and email addresses are not written to the activity database or display cache.
@@ -111,7 +122,7 @@ GitHub Actions runs the same formatting, linting, typing, testing, coverage, and
 
 ## Project status
 
-The repository now has a typed Python package, stable CLI contracts, private XDG storage, interactive Garmin login with same-process MFA, account-scope protection, bounded activity validation, versioned SQLite storage, incremental refreshes, daily 90-day reconciliation, process locking, tests, locked dependencies, and CI. Tests mock Garmin and use fabricated activities. The bounded summary contract is next. Installation instructions will be added only when the plugin can display cached activity summaries safely.
+The repository now has a typed Python package, stable CLI contracts, private XDG storage, interactive Garmin login with same-process MFA, account-scope protection, bounded activity validation, versioned SQLite storage, incremental refreshes, daily 90-day reconciliation, process locking, and a bounded summary cache. Tests mock Garmin and use fabricated activities. The Omarchy manifest and QML interface are next. Installation instructions will be added only when the plugin can display cached activity summaries safely.
 
 ## Disclaimer
 

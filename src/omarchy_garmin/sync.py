@@ -17,6 +17,11 @@ from omarchy_garmin.locking import (
     activity_refresh_lock,
 )
 from omarchy_garmin.paths import AppPaths
+from omarchy_garmin.summary import (
+    MAX_SUMMARY_ACTIVITIES,
+    SummaryDataError,
+    SummaryStorageError,
+)
 
 INCREMENTAL_DAYS = 7
 FULL_RECONCILIATION_DAYS = 90
@@ -85,6 +90,30 @@ class ActivityRepositoryOperations(Protocol):
         """Persist a validated fetched period transactionally."""
         ...
 
+    def activities_between(
+        self,
+        start_date: date,
+        end_date: date,
+        *,
+        limit: int,
+    ) -> list[Activity]:
+        """Return a bounded activity snapshot for summary generation."""
+        ...
+
+
+class SummaryOperations(Protocol):
+    """Bounded display-cache operation required after reconciliation."""
+
+    def write(
+        self,
+        activities: Sequence[Activity],
+        *,
+        as_of_date: date,
+        generated_at: datetime,
+    ) -> None:
+        """Atomically replace the summary cache from a complete snapshot."""
+        ...
+
 
 class ActivityGateway(Protocol):
     """Fetch activity summaries through the external Garmin boundary."""
@@ -123,6 +152,7 @@ class ActivitySyncService:
         auth_store: AuthStore,
         gateway: ActivityGateway,
         repository: ActivityRepositoryOperations,
+        summary: SummaryOperations,
         today: Callable[[], date] = date.today,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
@@ -131,6 +161,7 @@ class ActivitySyncService:
         self._auth_store = auth_store
         self._gateway = gateway
         self._repository = repository
+        self._summary = summary
         self._today = today
         self._now = now
 
@@ -168,16 +199,33 @@ class ActivitySyncService:
         # Persisting the verified session first enforces the account scope before
         # any fetched activity can reach SQLite.
         self._auth_store.persist(fetched.session)
+        completed_at = self._now()
         try:
             result = self._repository.reconcile(
                 activities,
                 start_date=start_date,
                 end_date=today,
-                completed_at=self._now(),
+                completed_at=completed_at,
                 full=full,
+            )
+            rolling_start = today - timedelta(days=FULL_RECONCILIATION_DAYS - 1)
+            snapshot = self._repository.activities_between(
+                rolling_start,
+                today,
+                limit=MAX_SUMMARY_ACTIVITIES + 1,
             )
         except ActivityDatabaseError as error:
             raise ActivityStorageError("activity reconciliation failed") from error
+        try:
+            self._summary.write(
+                snapshot,
+                as_of_date=today,
+                generated_at=completed_at,
+            )
+        except SummaryDataError as error:
+            raise ActivityDataError("activity summary data is invalid") from error
+        except SummaryStorageError as error:
+            raise ActivityStorageError("activity summary cache could not be written") from error
         return RefreshResult(
             mode="full" if full else "incremental",
             start_date=start_date,

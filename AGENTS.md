@@ -73,7 +73,7 @@ Do not store:
 - raw request or response bodies; or
 - fields that have not been reviewed and documented.
 
-Missing values remain `None` or JSON `null`. Do not turn missing values into zero. Preserve Garmin's original activity type key and apply a display grouping separately so new types degrade safely.
+Missing values remain `None` or JSON `null`. Do not turn missing values into zero. Preserve Garmin's original activity type key and apply a display grouping separately so new types degrade safely. Summary schema version 1 excludes activity names, identifiers, and start times. It carries overall and original-type aggregates with a contributor count for every metric. Average heart rate and power use duration weighting; average speed uses moving-duration weighting. Values without a positive matching weight do not contribute.
 
 Use calendar periods based on the activity's local start date. Today includes today; 7, 30, and 90 days include today and the preceding 6, 29, or 89 local dates. Retain only the current rolling 90-day activity window. Incremental refreshes reconcile a seven-day overlap, and one full 90-day reconciliation runs per local calendar day.
 

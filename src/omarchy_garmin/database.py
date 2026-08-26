@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import sqlite3
 import stat
@@ -66,6 +67,38 @@ CREATE TABLE sync_state (
 ) STRICT;
 """
 _MIGRATIONS = {1: _MIGRATION_1}
+
+
+def _required_text(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError("stored text value is invalid")
+    return value
+
+
+def _optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    return _required_text(value)
+
+
+def _optional_real(value: object) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError("stored numeric value is invalid")
+    result = float(value)
+    if not math.isfinite(result) or result < 0:
+        raise ValueError("stored numeric value is invalid")
+    return result
+
+
+def _optional_integer(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError("stored integer value is invalid")
+    return value
+
 
 _UPSERT_ACTIVITY = """
 INSERT INTO activities (
@@ -186,6 +219,50 @@ class ActivityRepository:
         except ValueError as error:
             raise ActivityDatabaseError("full reconciliation state is invalid") from error
 
+    def activities_between(
+        self,
+        start_date: date,
+        end_date: date,
+        *,
+        limit: int,
+    ) -> list[Activity]:
+        """Return a bounded normalized snapshot for an inclusive local-date period."""
+        if start_date > end_date:
+            raise ValueError("start_date must not follow end_date")
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    activity_id,
+                    name,
+                    type_key,
+                    started_at_local,
+                    local_date,
+                    duration_seconds,
+                    moving_duration_seconds,
+                    distance_metres,
+                    elevation_gain_metres,
+                    energy_joules,
+                    average_heart_rate_bpm,
+                    maximum_heart_rate_bpm,
+                    average_speed_metres_per_second,
+                    average_power_watts,
+                    total_sets,
+                    total_repetitions
+                FROM activities
+                WHERE local_date BETWEEN ? AND ?
+                ORDER BY local_date, started_at_local, activity_id
+                LIMIT ?
+                """,
+                (start_date.isoformat(), end_date.isoformat(), limit),
+            ).fetchall()
+        try:
+            return [self._activity_from_row(row) for row in rows]
+        except (TypeError, ValueError) as error:
+            raise ActivityDatabaseError("stored activity data is invalid") from error
+
     def reconcile(
         self,
         activities: Sequence[Activity],
@@ -248,6 +325,30 @@ class ActivityRepository:
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")
         return ReconcileResult(stored_count=len(activities), deleted_count=deleted)
+
+    @staticmethod
+    def _activity_from_row(row: Sequence[object]) -> Activity:
+        if len(row) != 16:
+            raise ValueError("stored activity row has an unexpected shape")
+        local_date_text = _required_text(row[4])
+        return Activity(
+            activity_id=_required_text(row[0]),
+            name=_optional_text(row[1]),
+            type_key=_required_text(row[2]),
+            started_at_local=_required_text(row[3]),
+            local_date=date.fromisoformat(local_date_text),
+            duration_seconds=_optional_real(row[5]),
+            moving_duration_seconds=_optional_real(row[6]),
+            distance_metres=_optional_real(row[7]),
+            elevation_gain_metres=_optional_real(row[8]),
+            energy_joules=_optional_real(row[9]),
+            average_heart_rate_bpm=_optional_real(row[10]),
+            maximum_heart_rate_bpm=_optional_real(row[11]),
+            average_speed_metres_per_second=_optional_real(row[12]),
+            average_power_watts=_optional_real(row[13]),
+            total_sets=_optional_integer(row[14]),
+            total_repetitions=_optional_integer(row[15]),
+        )
 
     @staticmethod
     def _activity_row(activity: Activity, synced_at: str) -> tuple[object, ...]:

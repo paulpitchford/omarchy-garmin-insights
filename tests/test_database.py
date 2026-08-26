@@ -137,6 +137,53 @@ def test_full_reconcile_removes_activities_outside_rolling_90_days(tmp_path: Pat
     assert _rows(database) == []
 
 
+def test_activity_snapshot_is_bounded_to_requested_local_dates(tmp_path: Path) -> None:
+    database = tmp_path / "activities.sqlite3"
+    repository = ActivityRepository(database)
+    repository.reconcile(
+        [
+            _activity("101", date(2026, 8, 24), type_key="running"),
+            _activity("102", date(2026, 8, 25), type_key="cycling"),
+            _activity("103", date(2026, 8, 26), type_key="walking"),
+        ],
+        start_date=date(2026, 8, 20),
+        end_date=date(2026, 8, 26),
+        completed_at=_COMPLETED_AT,
+        full=False,
+    )
+
+    activities = repository.activities_between(
+        date(2026, 8, 25),
+        date(2026, 8, 26),
+        limit=1,
+    )
+
+    assert [(activity.activity_id, activity.type_key) for activity in activities] == [
+        ("102", "cycling")
+    ]
+
+
+def test_malformed_stored_measurement_is_rejected_from_snapshot(tmp_path: Path) -> None:
+    database = tmp_path / "activities.sqlite3"
+    repository = ActivityRepository(database)
+    repository.reconcile(
+        [_activity("101", date(2026, 8, 25))],
+        start_date=date(2026, 8, 20),
+        end_date=date(2026, 8, 26),
+        completed_at=_COMPLETED_AT,
+        full=False,
+    )
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute("UPDATE activities SET distance_metres = -1")
+
+    with pytest.raises(ActivityDatabaseError, match="stored activity"):
+        repository.activities_between(
+            date(2026, 8, 20),
+            date(2026, 8, 26),
+            limit=100,
+        )
+
+
 def test_failed_reconcile_rolls_back_all_activity_changes(tmp_path: Path) -> None:
     database = tmp_path / "activities.sqlite3"
     repository = ActivityRepository(database)

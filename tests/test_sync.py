@@ -7,11 +7,13 @@ from typing import Any
 
 import pytest
 
+import omarchy_garmin.summary as summary_module
 from omarchy_garmin.auth import AccountMismatchError, AuthenticatedSession, AuthStore
 from omarchy_garmin.database import ActivityRepository
 from omarchy_garmin.locking import activity_refresh_lock
 from omarchy_garmin.paths import AppPaths
 from omarchy_garmin.storage import ensure_private_directory
+from omarchy_garmin.summary import SummaryCache
 from omarchy_garmin.sync import (
     ActivityAuthenticationRequiredError,
     ActivityDataError,
@@ -100,6 +102,7 @@ def _configured_service(
         auth_store=store,
         gateway=selected_gateway,
         repository=ActivityRepository(paths.activity_database),
+        summary=SummaryCache(paths.summary_file),
         today=lambda: _TODAY,
         now=lambda: _NOW,
     )
@@ -121,8 +124,11 @@ def test_first_refresh_fetches_full_90_day_period_and_persists_refreshed_tokens(
     assert gateway.calls == [(_token("stored"), date(2026, 5, 29), _TODAY)]
     assert paths.token_file.read_bytes() == _token("refreshed")
     database_bytes = paths.activity_database.read_bytes()
+    summary = json.loads(paths.summary_file.read_bytes())
     assert b"latitude" not in database_bytes
     assert b"longitude" not in database_bytes
+    assert summary["asOfLocalDate"] == "2026-08-26"
+    assert summary["periods"][-1]["overall"]["activityCount"] == 1
 
 
 def test_later_refresh_on_same_day_uses_seven_day_overlap(tmp_path: Path) -> None:
@@ -156,6 +162,7 @@ def test_refresh_without_tokens_fails_before_garmin_request(tmp_path: Path) -> N
         auth_store=AuthStore(paths),
         gateway=gateway,
         repository=ActivityRepository(paths.activity_database),
+        summary=SummaryCache(paths.summary_file),
     )
 
     with pytest.raises(ActivityAuthenticationRequiredError):
@@ -171,6 +178,7 @@ def test_malformed_response_preserves_previous_database_and_tokens(tmp_path: Pat
     service.refresh()
     original_database = paths.activity_database.read_bytes()
     original_tokens = paths.token_file.read_bytes()
+    original_summary = paths.summary_file.read_bytes()
     gateway.payload = [_raw_activity(name="")]
     gateway.session = _session(marker="must-not-persist")
 
@@ -179,6 +187,43 @@ def test_malformed_response_preserves_previous_database_and_tokens(tmp_path: Pat
 
     assert paths.activity_database.read_bytes() == original_database
     assert paths.token_file.read_bytes() == original_tokens
+    assert paths.summary_file.read_bytes() == original_summary
+
+
+def test_invalid_summary_preserves_database_but_reports_data_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, paths, _ = _configured_service(tmp_path)
+    monkeypatch.setattr(summary_module, "MAX_SUMMARY_BYTES", 1)
+
+    with pytest.raises(ActivityDataError):
+        service.refresh()
+
+    with closing(sqlite3.connect(paths.activity_database)) as connection:
+        count = connection.execute("SELECT count(*) FROM activities").fetchone()[0]
+    assert count == 1
+    assert paths.summary_file.exists() is False
+
+
+def test_failed_summary_write_preserves_database_but_reports_storage_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, paths, _ = _configured_service(tmp_path)
+
+    def fail_write(destination: Path, content: bytes) -> None:
+        raise OSError("fabricated interrupted write")
+
+    monkeypatch.setattr(summary_module, "atomic_write_private", fail_write)
+
+    with pytest.raises(ActivityStorageError):
+        service.refresh()
+
+    with closing(sqlite3.connect(paths.activity_database)) as connection:
+        count = connection.execute("SELECT count(*) FROM activities").fetchone()[0]
+    assert count == 1
+    assert paths.summary_file.exists() is False
 
 
 def test_different_account_cannot_reach_activity_database(tmp_path: Path) -> None:
