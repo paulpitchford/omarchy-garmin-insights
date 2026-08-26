@@ -2,9 +2,19 @@
 
 Garmin Insights is an Omarchy Quattro bar plugin that shows recent Garmin Connect activity totals. It covers today and the last 7, 30, and 90 calendar days, with separate rows for each Garmin activity type.
 
-![Garmin Insights panel showing fabricated demo data](preview.png)
+![Garmin Insights summary showing fabricated demo data](preview.png)
+
+Current release: [`v0.1.0`](https://github.com/paulpitchford/omarchy-garmin-insights/releases/tag/v0.1.0)
 
 The plugin ID is `io.github.paulpitchford.garmin-insights`.
+
+## Screenshots
+
+These screenshots use the plugin's built-in synthetic demo. They contain no data from a Garmin account.
+
+| Activity list | Activity detail |
+|---|---|
+| ![Fabricated activity list in Garmin Insights](screenshots/activity-list.png) | ![Fabricated strength activity details in Garmin Insights](screenshots/activity-detail.png) |
 
 ## What it does
 
