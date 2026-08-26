@@ -306,6 +306,10 @@ function parseActivityDetailEnvelope(raw, expectedActivityId) {
   return { ok: true, found: true, activity: activity, envelope: envelope }
 }
 
+function normalizeActivityTypeFilter(typeKey) {
+  return typeKey === undefined || typeKey === null || typeKey === "" ? null : String(typeKey)
+}
+
 function garminConnectUrl(activityId) {
   return validActivityId(activityId)
     ? "https://connect.garmin.com/app/activity/" + activityId : ""
