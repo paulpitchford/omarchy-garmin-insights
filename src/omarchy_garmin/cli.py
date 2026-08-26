@@ -8,10 +8,25 @@ import os
 import platform
 import sys
 from collections.abc import Mapping, Sequence
+from datetime import date
 from pathlib import Path
 from typing import NoReturn, TextIO
 
 from omarchy_garmin import __version__
+from omarchy_garmin.activity_views import (
+    MAX_ACTIVITY_PAGE_OFFSET,
+    MAX_ACTIVITY_PAGE_SIZE,
+    MAX_ACTIVITY_VIEW_BYTES,
+    ActivityViewDataError,
+    ActivityViewError,
+    ActivityViewOperations,
+    ActivityViewRequestError,
+    ActivityViewService,
+    activity_detail_payload,
+    activity_page_payload,
+    validate_activity_id,
+    validate_type_key,
+)
 from omarchy_garmin.auth import (
     AccountMismatchError,
     AuthenticationRejectedError,
@@ -84,7 +99,65 @@ def _build_parser() -> argparse.ArgumentParser:
     refresh = subparsers.add_parser("refresh", help="synchronize recent Garmin activities")
     refresh.add_argument("--json", action="store_true", dest="as_json")
     refresh.add_argument("--full", action="store_true", dest="force_full")
+
+    activities = subparsers.add_parser("activities", help="read local activity details")
+    activity_subparsers = activities.add_subparsers(
+        dest="activities_command", required=True, parser_class=_ArgumentParser
+    )
+    activity_list = activity_subparsers.add_parser("list")
+    activity_list.add_argument("--json", action="store_true", dest="as_json")
+    activity_list.add_argument(
+        "--period", required=True, choices=("today", "7Days", "30Days", "90Days")
+    )
+    activity_list.add_argument("--as-of", required=True, type=_local_date_argument)
+    activity_list.add_argument("--type-key", type=_type_key_argument)
+    activity_list.add_argument("--offset", type=_page_offset_argument, default=0)
+    activity_detail = activity_subparsers.add_parser("detail")
+    activity_detail.add_argument("--json", action="store_true", dest="as_json")
+    activity_detail.add_argument("--activity-id", required=True, type=_activity_id_argument)
     return parser
+
+
+def _local_date_argument(value: str) -> date:
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("invalid local date") from error
+    if parsed.isoformat() != value:
+        raise argparse.ArgumentTypeError("invalid local date")
+    return parsed
+
+
+def _type_key_argument(value: str) -> str:
+    try:
+        validated = validate_type_key(value)
+    except ActivityViewRequestError as error:
+        raise argparse.ArgumentTypeError("invalid activity type") from error
+    if validated is None:  # pragma: no cover - argparse always supplies text
+        raise argparse.ArgumentTypeError("invalid activity type")
+    return validated
+
+
+def _page_offset_argument(value: str) -> int:
+    try:
+        offset = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("invalid activity page") from error
+    if (
+        str(offset) != value
+        or offset < 0
+        or offset > MAX_ACTIVITY_PAGE_OFFSET
+        or offset % MAX_ACTIVITY_PAGE_SIZE != 0
+    ):
+        raise argparse.ArgumentTypeError("invalid activity page")
+    return offset
+
+
+def _activity_id_argument(value: str) -> str:
+    try:
+        return validate_activity_id(value)
+    except ActivityViewRequestError as error:
+        raise argparse.ArgumentTypeError("invalid activity identifier") from error
 
 
 def _path_text(path: Path | None) -> str | None:
@@ -155,6 +228,13 @@ def _default_auth_operations(paths: AppPaths, stdin: TextIO, stderr: TextIO) -> 
         gateway=GarminAuthGateway(),
         credential_provider=TerminalCredentialProvider(stdin, stderr),
     )
+
+
+def _default_activity_view_operations(paths: AppPaths) -> ActivityViewOperations:
+    """Build local activity-view dependencies at the process composition root."""
+    from omarchy_garmin.database import ActivityRepository
+
+    return ActivityViewService(ActivityRepository(paths.activity_database))
 
 
 def _default_refresh_operations(paths: AppPaths) -> RefreshOperations:
@@ -277,12 +357,56 @@ def _run_refresh(
     )
 
 
+def _run_activity_view(
+    arguments: argparse.Namespace,
+    *,
+    paths: AppPaths,
+    stdout: TextIO,
+    operations: ActivityViewOperations | None,
+) -> int:
+    """Run one bounded local activity-list or detail command."""
+    views = operations or _default_activity_view_operations(paths)
+    action: str = arguments.activities_command
+    if action == "list":
+        page = views.list_activities(
+            period_key=arguments.period,
+            as_of_date=arguments.as_of,
+            type_key=arguments.type_key,
+            offset=arguments.offset,
+        )
+        data = activity_page_payload(page)
+        human_message = f"Returned {len(page.activities)} local activities."
+    elif action == "detail":
+        detail = views.activity_detail(arguments.activity_id)
+        data = activity_detail_payload(detail)
+        human_message = (
+            "Local activity detail found."
+            if detail.activity is not None
+            else "Local activity was not found."
+        )
+    else:
+        raise AssertionError(f"unhandled activities command: {action}")  # pragma: no cover
+
+    command = f"activities.{action}"
+    if arguments.as_json:
+        payload = _success_payload(command, data)
+        content = json.dumps(payload, allow_nan=False, separators=(",", ":"), sort_keys=True)
+        if len(content.encode()) + 1 > MAX_ACTIVITY_VIEW_BYTES:
+            raise ActivityViewDataError("activity view exceeds the output bound")
+        stdout.write(content + "\n")
+    else:
+        stdout.write(human_message + "\n")
+    return int(ExitStatus.SUCCESS)
+
+
 def _requested_command(argv: Sequence[str]) -> str | None:
     """Return only a recognized command name for public error output."""
     if argv and argv[0] in {"doctor", "refresh"}:
         return argv[0]
     if len(argv) > 1 and argv[0] == "auth" and argv[1] in _KNOWN_AUTH_COMMANDS:
         return f"auth.{argv[1]}"
+    if len(argv) > 1 and argv[0] == "activities" and argv[1] in {"list", "detail"}:
+        return f"activities.{argv[1]}"
     return None
 
 
@@ -371,6 +495,51 @@ def _auth_error_code(error: AuthError) -> ErrorCode:
     return ErrorCode.INTERNAL_ERROR
 
 
+def _dispatch_command(
+    arguments: argparse.Namespace,
+    *,
+    paths: AppPaths,
+    stdin: TextIO,
+    stdout: TextIO,
+    stderr: TextIO,
+    auth_operations: AuthOperations | None,
+    refresh_operations: RefreshOperations | None,
+    activity_view_operations: ActivityViewOperations | None,
+) -> int:
+    """Dispatch one parsed command to its explicit operation boundary."""
+    if arguments.command == "doctor":
+        payload = _doctor_payload(paths)
+        if arguments.as_json:
+            stdout.write(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
+        else:
+            _write_human_doctor(stdout, paths)
+        return int(ExitStatus.SUCCESS)
+    if arguments.command == "auth":
+        return _run_auth(
+            arguments,
+            paths=paths,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+            operations=auth_operations,
+        )
+    if arguments.command == "refresh":
+        return _run_refresh(
+            arguments,
+            paths=paths,
+            stdout=stdout,
+            operations=refresh_operations,
+        )
+    if arguments.command == "activities":
+        return _run_activity_view(
+            arguments,
+            paths=paths,
+            stdout=stdout,
+            operations=activity_view_operations,
+        )
+    raise AssertionError(f"unhandled command: {arguments.command}")  # pragma: no cover
+
+
 def run(
     argv: Sequence[str],
     *,
@@ -381,6 +550,7 @@ def run(
     home: Path,
     auth_operations: AuthOperations | None = None,
     refresh_operations: RefreshOperations | None = None,
+    activity_view_operations: ActivityViewOperations | None = None,
 ) -> int:
     """Run the CLI with explicit process boundaries for deterministic testing.
 
@@ -393,6 +563,7 @@ def run(
         home: Home directory used for XDG defaults.
         auth_operations: Optional injected authentication boundary for tests.
         refresh_operations: Optional injected activity-refresh boundary for tests.
+        activity_view_operations: Optional injected local activity-view boundary for tests.
 
     Returns:
         A process exit status.
@@ -402,32 +573,16 @@ def run(
     try:
         arguments = _build_parser().parse_args(argv)
         paths = _resolve_paths(environment, home)
-
-        if arguments.command == "doctor":
-            payload = _doctor_payload(paths)
-            if arguments.as_json:
-                stdout.write(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
-            else:
-                _write_human_doctor(stdout, paths)
-            return int(ExitStatus.SUCCESS)
-        if arguments.command == "auth":
-            return _run_auth(
-                arguments,
-                paths=paths,
-                stdin=stdin,
-                stdout=stdout,
-                stderr=stderr,
-                operations=auth_operations,
-            )
-        if arguments.command == "refresh":
-            return _run_refresh(
-                arguments,
-                paths=paths,
-                stdout=stdout,
-                operations=refresh_operations,
-            )
-
-        raise AssertionError(f"unhandled command: {arguments.command}")  # pragma: no cover
+        return _dispatch_command(
+            arguments,
+            paths=paths,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+            auth_operations=auth_operations,
+            refresh_operations=refresh_operations,
+            activity_view_operations=activity_view_operations,
+        )
     except CommandError as error:
         return _write_error(
             stdout=stdout,
@@ -451,6 +606,19 @@ def run(
             command=command,
             as_json=as_json,
             code=_sync_error_code(error),
+        )
+    except ActivityViewError as error:
+        code = (
+            ErrorCode.INVALID_ARGUMENTS
+            if isinstance(error, ActivityViewRequestError)
+            else ErrorCode.LOCAL_STORAGE_ERROR
+        )
+        return _write_error(
+            stdout=stdout,
+            stderr=stderr,
+            command=command,
+            as_json=as_json,
+            code=code,
         )
     except Exception:  # noqa: BLE001 - final process boundary returns a fixed, redacted failure
         return _write_error(

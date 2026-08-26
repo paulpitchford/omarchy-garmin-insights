@@ -94,11 +94,16 @@ def test_missing_optional_values_remain_none_and_unfamiliar_type_is_preserved() 
         pytest.param([_raw_activity(activityId=0)], id="nonpositive-id"),
         pytest.param([_raw_activity(activityName="")], id="empty-name"),
         pytest.param([_raw_activity(activityName="x" * 257)], id="oversized-name"),
+        pytest.param([_raw_activity(activityName="hostile\nname")], id="control-in-name"),
         pytest.param([_raw_activity(activityType=None)], id="missing-type"),
         pytest.param([_raw_activity(activityType={})], id="missing-type-key"),
         pytest.param(
             [_raw_activity(activityType={"typeKey": "x" * 101})],
             id="oversized-type-key",
+        ),
+        pytest.param(
+            [_raw_activity(activityType={"typeKey": "run\u0000ning"})],
+            id="control-in-type-key",
         ),
         pytest.param([_raw_activity(startTimeLocal="invalid")], id="invalid-local-start"),
         pytest.param([_raw_activity(startTimeLocal="2026-08-25")], id="date-without-time"),
