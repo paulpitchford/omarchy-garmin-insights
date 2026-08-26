@@ -28,6 +28,14 @@ The implementation must:
 
 The first release will not download FIT files and will not upload, edit, or delete Garmin account data.
 
+## Current authentication boundary
+
+Authentication uses the PyPI release of `python-garminconnect` pinned in `pyproject.toml` and `uv.lock`. Login runs in a visible terminal and contacts only the documented Garmin hosts: `sso.garmin.com`, `connect.garmin.com`, `connectapi.garmin.com`, `diauth.garmin.com`, and `mobile.integration.garmin.com`. Password and MFA input is hidden, remains in the login process, and is never written to command output or local storage.
+
+Tokens are stored at `$XDG_STATE_HOME/omarchy-garmin-activities/auth/garmin_tokens.json`. The application directories use mode `0700`, and private files use mode `0600`. Reads and removals reject symlinks, non-regular files, unexpected owners, and oversized content. The backend stores a pseudonymous account fingerprint separately so tokens for another account cannot be used with existing local activity data.
+
+`auth logout --confirm` removes only the token file. `auth purge --confirm` removes the token, account scope, and all other allowlisted plugin data files. Neither command makes a Garmin request or revokes server-side tokens.
+
 ## Supported versions
 
 The project is not yet released. A supported-version policy will be published with the first release.

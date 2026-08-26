@@ -12,11 +12,27 @@ from pathlib import Path
 from typing import NoReturn, TextIO
 
 from omarchy_garmin import __version__
+from omarchy_garmin.auth import (
+    AccountMismatchError,
+    AuthenticationRejectedError,
+    AuthError,
+    AuthNetworkError,
+    AuthOperations,
+    AuthRateLimitedError,
+    AuthRemoteServiceError,
+    AuthService,
+    AuthStatus,
+    AuthStorageError,
+    AuthStore,
+    InteractiveTerminalRequiredError,
+    InvalidAuthResponseError,
+)
 from omarchy_garmin.errors import ERROR_SPECS, CommandError, ErrorCode, ExitStatus
 from omarchy_garmin.paths import AppPaths
+from omarchy_garmin.prompts import TerminalCredentialProvider
 
 OUTPUT_SCHEMA_VERSION = 1
-_KNOWN_COMMANDS = frozenset({"doctor"})
+_KNOWN_AUTH_COMMANDS = frozenset({"status", "login", "logout", "purge"})
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -38,6 +54,18 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True, parser_class=_ArgumentParser)
     doctor = subparsers.add_parser("doctor", help="inspect backend prerequisites and paths")
     doctor.add_argument("--json", action="store_true", dest="as_json")
+
+    auth = subparsers.add_parser("auth", help="manage Garmin authentication")
+    auth_subparsers = auth.add_subparsers(
+        dest="auth_command", required=True, parser_class=_ArgumentParser
+    )
+    for action in ("status", "login"):
+        auth_command = auth_subparsers.add_parser(action)
+        auth_command.add_argument("--json", action="store_true", dest="as_json")
+    for action in ("logout", "purge"):
+        auth_command = auth_subparsers.add_parser(action)
+        auth_command.add_argument("--json", action="store_true", dest="as_json")
+        auth_command.add_argument("--confirm", action="store_true")
     return parser
 
 
@@ -80,9 +108,120 @@ def _write_human_doctor(stdout: TextIO, paths: AppPaths) -> None:
     )
 
 
+def _success_payload(command: str, data: dict[str, object]) -> dict[str, object]:
+    """Build the versioned success envelope shared by machine-readable commands."""
+    return {
+        "schemaVersion": OUTPUT_SCHEMA_VERSION,
+        "command": command,
+        "ok": True,
+        "data": data,
+        "error": None,
+    }
+
+
+def _auth_status_data(status: AuthStatus) -> dict[str, object]:
+    """Serialize local authentication state without account details."""
+    return {
+        "configured": status.configured,
+        "verified": status.verified,
+        "accountScoped": status.account_scoped,
+    }
+
+
+def _default_auth_operations(paths: AppPaths, stdin: TextIO, stderr: TextIO) -> AuthOperations:
+    """Build authentication dependencies at the process composition root."""
+    from omarchy_garmin.garmin_gateway import GarminAuthGateway
+
+    return AuthService(
+        store=AuthStore(paths),
+        gateway=GarminAuthGateway(),
+        credential_provider=TerminalCredentialProvider(stdin, stderr),
+    )
+
+
+def _write_auth_success(
+    *,
+    stdout: TextIO,
+    command: str,
+    as_json: bool,
+    data: dict[str, object],
+    human_message: str,
+) -> int:
+    """Write one bounded authentication success response."""
+    if as_json:
+        payload = _success_payload(command, data)
+        stdout.write(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
+    else:
+        stdout.write(human_message + "\n")
+    return int(ExitStatus.SUCCESS)
+
+
+def _run_auth(
+    arguments: argparse.Namespace,
+    *,
+    paths: AppPaths,
+    stdin: TextIO,
+    stdout: TextIO,
+    stderr: TextIO,
+    operations: AuthOperations | None,
+) -> int:
+    """Dispatch one parsed authentication command."""
+    action: str = arguments.auth_command
+    command = f"auth.{action}"
+    auth = operations or _default_auth_operations(paths, stdin, stderr)
+
+    if action == "status":
+        status = auth.status()
+        return _write_auth_success(
+            stdout=stdout,
+            command=command,
+            as_json=arguments.as_json,
+            data=_auth_status_data(status),
+            human_message=(
+                "Garmin authentication is configured but unverified."
+                if status.configured
+                else "Garmin authentication is not configured."
+            ),
+        )
+    if action == "login":
+        status = auth.login()
+        return _write_auth_success(
+            stdout=stdout,
+            command=command,
+            as_json=arguments.as_json,
+            data=_auth_status_data(status),
+            human_message="Garmin authentication verified.",
+        )
+    if not arguments.confirm:
+        raise CommandError(ErrorCode.INVALID_ARGUMENTS)
+    if action == "logout":
+        auth.logout()
+        return _write_auth_success(
+            stdout=stdout,
+            command=command,
+            as_json=arguments.as_json,
+            data={"configured": False, "localActivityDataRetained": True},
+            human_message="Garmin tokens removed. Local activity data retained.",
+        )
+    if action == "purge":
+        auth.purge()
+        return _write_auth_success(
+            stdout=stdout,
+            command=command,
+            as_json=arguments.as_json,
+            data={"configured": False, "localDataRetained": False},
+            human_message="Local Garmin authentication and activity data removed.",
+        )
+    raise AssertionError(f"unhandled auth command: {action}")  # pragma: no cover
+
+
 def _requested_command(argv: Sequence[str]) -> str | None:
     """Return only a recognized command name for public error output."""
-    return argv[0] if argv and argv[0] in _KNOWN_COMMANDS else None
+    if argv and argv[0] == "doctor":
+        return "doctor"
+    if len(argv) > 1 and argv[0] == "auth" and argv[1] in _KNOWN_AUTH_COMMANDS:
+        return f"auth.{argv[1]}"
+    return None
 
 
 def _error_payload(command: str | None, code: ErrorCode) -> dict[str, object]:
@@ -126,22 +265,47 @@ def _resolve_paths(environment: Mapping[str, str], home: Path) -> AppPaths:
         raise CommandError(ErrorCode.INVALID_CONFIGURATION) from error
 
 
+def _auth_error_code(error: AuthError) -> ErrorCode:
+    """Map authentication-domain failures to the stable process contract."""
+    if isinstance(error, InteractiveTerminalRequiredError):
+        return ErrorCode.INTERACTIVE_TERMINAL_REQUIRED
+    if isinstance(error, AuthenticationRejectedError):
+        return ErrorCode.AUTHENTICATION_FAILED
+    if isinstance(error, AccountMismatchError):
+        return ErrorCode.ACCOUNT_MISMATCH
+    if isinstance(error, AuthRateLimitedError):
+        return ErrorCode.RATE_LIMITED
+    if isinstance(error, AuthNetworkError):
+        return ErrorCode.NETWORK_UNAVAILABLE
+    if isinstance(error, AuthRemoteServiceError):
+        return ErrorCode.REMOTE_SERVICE_ERROR
+    if isinstance(error, InvalidAuthResponseError):
+        return ErrorCode.INVALID_REMOTE_DATA
+    if isinstance(error, AuthStorageError):
+        return ErrorCode.LOCAL_STORAGE_ERROR
+    return ErrorCode.INTERNAL_ERROR
+
+
 def run(
     argv: Sequence[str],
     *,
+    stdin: TextIO = sys.stdin,
     stdout: TextIO,
     stderr: TextIO,
     environment: Mapping[str, str],
     home: Path,
+    auth_operations: AuthOperations | None = None,
 ) -> int:
     """Run the CLI with explicit process boundaries for deterministic testing.
 
     Args:
         argv: Command arguments excluding the executable name.
+        stdin: Source for visible-terminal credential input.
         stdout: Destination for successful command and machine-readable error output.
         stderr: Destination for concise human-readable errors.
         environment: Environment variables used to resolve XDG paths.
         home: Home directory used for XDG defaults.
+        auth_operations: Optional injected authentication boundary for tests.
 
     Returns:
         A process exit status.
@@ -159,6 +323,15 @@ def run(
             else:
                 _write_human_doctor(stdout, paths)
             return int(ExitStatus.SUCCESS)
+        if arguments.command == "auth":
+            return _run_auth(
+                arguments,
+                paths=paths,
+                stdin=stdin,
+                stdout=stdout,
+                stderr=stderr,
+                operations=auth_operations,
+            )
 
         raise AssertionError(f"unhandled command: {arguments.command}")  # pragma: no cover
     except CommandError as error:
@@ -168,6 +341,14 @@ def run(
             command=command,
             as_json=as_json,
             code=error.code,
+        )
+    except AuthError as error:
+        return _write_error(
+            stdout=stdout,
+            stderr=stderr,
+            command=command,
+            as_json=as_json,
+            code=_auth_error_code(error),
         )
     except Exception:  # noqa: BLE001 - final process boundary returns a fixed, redacted failure
         return _write_error(
@@ -184,6 +365,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else argv
     return run(
         arguments,
+        stdin=sys.stdin,
         stdout=sys.stdout,
         stderr=sys.stderr,
         environment=os.environ,

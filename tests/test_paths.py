@@ -2,7 +2,14 @@ from pathlib import Path
 
 import pytest
 
-from omarchy_garmin.paths import APP_DIRECTORY, AppPaths
+from omarchy_garmin.paths import (
+    ACCOUNT_SCOPE_FILE_NAME,
+    ACTIVITY_DATABASE_FILE_NAME,
+    APP_DIRECTORY,
+    SUMMARY_FILE_NAME,
+    TOKEN_FILE_NAME,
+    AppPaths,
+)
 
 
 def test_defaults_follow_home_directory() -> None:
@@ -12,6 +19,16 @@ def test_defaults_follow_home_directory() -> None:
     assert paths.data == Path("/home/example/.local/share") / APP_DIRECTORY
     assert paths.cache == Path("/home/example/.cache") / APP_DIRECTORY
     assert paths.runtime is None
+
+
+def test_application_file_paths_use_dedicated_xdg_scopes() -> None:
+    paths = AppPaths.from_environment({}, Path("/home/example"))
+
+    assert paths.auth == paths.state / "auth"
+    assert paths.token_file == paths.auth / TOKEN_FILE_NAME
+    assert paths.account_scope_file == paths.data / ACCOUNT_SCOPE_FILE_NAME
+    assert paths.activity_database == paths.data / ACTIVITY_DATABASE_FILE_NAME
+    assert paths.summary_file == paths.cache / SUMMARY_FILE_NAME
 
 
 def test_absolute_xdg_overrides_are_used() -> None:

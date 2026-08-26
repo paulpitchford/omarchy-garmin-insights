@@ -28,6 +28,7 @@ class ErrorCode(StrEnum):
 
     INVALID_ARGUMENTS = "invalid_arguments"
     INVALID_CONFIGURATION = "invalid_configuration"
+    INTERACTIVE_TERMINAL_REQUIRED = "interactive_terminal_required"
     AUTH_REQUIRED = "auth_required"
     AUTHENTICATION_FAILED = "authentication_failed"
     ACCOUNT_MISMATCH = "account_mismatch"
@@ -55,6 +56,10 @@ ERROR_SPECS: Final[Mapping[ErrorCode, ErrorSpec]] = MappingProxyType(
         ),
         ErrorCode.INVALID_CONFIGURATION: ErrorSpec(
             ExitStatus.CONFIGURATION_ERROR, "The backend configuration is invalid."
+        ),
+        ErrorCode.INTERACTIVE_TERMINAL_REQUIRED: ErrorSpec(
+            ExitStatus.CONFIGURATION_ERROR,
+            "Garmin login requires a visible interactive terminal.",
         ),
         ErrorCode.AUTH_REQUIRED: ErrorSpec(
             ExitStatus.AUTHENTICATION_ERROR, "Garmin authentication is required."

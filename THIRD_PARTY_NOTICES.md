@@ -1,7 +1,11 @@
 # Third-party notices
 
-This repository does not yet have a runtime dependency.
+## python-garminconnect
 
-Development tools are resolved from `pyproject.toml` and pinned transitively in `uv.lock`. They are not redistributed as part of this repository. Their package metadata and upstream licence files remain the authoritative notices for those tools.
+This project directly uses [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) 0.3.11, distributed under the MIT License.
 
-Runtime dependency notices will be added here in the same change that introduces each dependency.
+Copyright (c) 2020-2026 Ron Klinkien.
+
+The package is installed from PyPI and is not copied into this repository. Its upstream [LICENSE](https://github.com/cyberjunky/python-garminconnect/blob/0.3.11/LICENSE) file contains the authoritative licence text.
+
+Transitive runtime packages are resolved and hash-pinned in `uv.lock`. Their installed package metadata and upstream licence files remain the authoritative notices for those packages. Development tools are also resolved through the lockfile and are not redistributed by this repository.

@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 APP_DIRECTORY = "omarchy-garmin-activities"
+TOKEN_FILE_NAME = "garmin_tokens.json"  # noqa: S105 - fixed filename, not a credential
+ACCOUNT_SCOPE_FILE_NAME = "account_scope.json"
+ACTIVITY_DATABASE_FILE_NAME = "activities.sqlite3"
+SUMMARY_FILE_NAME = "summary.json"
 
 
 def _absolute_xdg_path(environment: Mapping[str, str], variable: str) -> Path | None:
@@ -27,6 +31,31 @@ class AppPaths:
     data: Path
     cache: Path
     runtime: Path | None
+
+    @property
+    def auth(self) -> Path:
+        """Return the dedicated authentication directory."""
+        return self.state / "auth"
+
+    @property
+    def token_file(self) -> Path:
+        """Return the dedicated Garmin token file."""
+        return self.auth / TOKEN_FILE_NAME
+
+    @property
+    def account_scope_file(self) -> Path:
+        """Return the pseudonymous account-scope metadata file."""
+        return self.data / ACCOUNT_SCOPE_FILE_NAME
+
+    @property
+    def activity_database(self) -> Path:
+        """Return the normalized activity database path."""
+        return self.data / ACTIVITY_DATABASE_FILE_NAME
+
+    @property
+    def summary_file(self) -> Path:
+        """Return the bounded display summary cache path."""
+        return self.cache / SUMMARY_FILE_NAME
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str], home: Path) -> AppPaths:

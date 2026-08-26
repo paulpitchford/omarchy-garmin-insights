@@ -21,7 +21,9 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+    "garminconnect==0.3.11",
+]
 
 [project.scripts]
 omarchy-garmin-activities = "omarchy_garmin.cli:main"

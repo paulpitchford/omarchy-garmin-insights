@@ -41,6 +41,27 @@ def _opened_directory_without_following(path: Path) -> Iterator[int]:
         os.close(descriptor)
 
 
+@contextmanager
+def _secured_directory(path: Path) -> Iterator[int]:
+    """Open an application directory, verify ownership, and enforce mode 0700."""
+    with _opened_directory_without_following(path) as descriptor:
+        metadata = os.fstat(descriptor)
+        if metadata.st_uid != os.geteuid():
+            raise UnsafeStoragePathError(f"storage directory has a different owner: {path}")
+        os.fchmod(descriptor, PRIVATE_DIRECTORY_MODE)
+        yield descriptor
+
+
+def private_directory_exists(path: Path) -> bool:
+    """Return whether an owner-only application directory exists safely."""
+    _require_absolute(path)
+    try:
+        with _secured_directory(path):
+            return True
+    except FileNotFoundError:
+        return False
+
+
 def ensure_private_directory(path: Path) -> Path:
     """Create or secure an owner-only application directory.
 
@@ -65,19 +86,84 @@ def ensure_private_directory(path: Path) -> Path:
     with suppress(FileExistsError):
         path.mkdir(mode=PRIVATE_DIRECTORY_MODE)
 
-    with _opened_directory_without_following(path) as descriptor:
-        metadata = os.fstat(descriptor)
-        if metadata.st_uid != os.geteuid():
-            raise UnsafeStoragePathError(f"storage directory has a different owner: {path}")
-        os.fchmod(descriptor, PRIVATE_DIRECTORY_MODE)
+    with _secured_directory(path):
+        pass
 
     return path
 
 
 def _sync_directory(path: Path) -> None:
     """Flush a directory entry after an atomic replacement."""
-    with _opened_directory_without_following(path) as descriptor:
+    with _secured_directory(path) as descriptor:
         os.fsync(descriptor)
+
+
+@contextmanager
+def _opened_private_file(path: Path) -> Iterator[int]:
+    """Open a regular owner-only file relative to its secured parent directory."""
+    _require_absolute(path)
+    with _secured_directory(path.parent) as parent_descriptor:
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+        try:
+            descriptor = os.open(path.name, flags, dir_fd=parent_descriptor)
+        except OSError as error:
+            if error.errno in {errno.ELOOP, errno.ENOTDIR}:
+                raise UnsafeStoragePathError(
+                    f"private file is not a regular file: {path}"
+                ) from error
+            raise
+
+        try:
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise UnsafeStoragePathError(f"private file is not a regular file: {path}")
+            if metadata.st_uid != os.geteuid():
+                raise UnsafeStoragePathError(f"private file has a different owner: {path}")
+            os.fchmod(descriptor, PRIVATE_FILE_MODE)
+            yield descriptor
+        finally:
+            os.close(descriptor)
+
+
+def private_file_exists(path: Path) -> bool:
+    """Return whether an owner-only regular file exists safely."""
+    try:
+        with _opened_private_file(path):
+            return True
+    except FileNotFoundError:
+        return False
+
+
+def read_private_file(path: Path, *, max_bytes: int) -> bytes:
+    """Read a bounded owner-only regular file without following symlinks."""
+    if max_bytes < 1:
+        raise ValueError("max_bytes must be positive")
+
+    with (
+        _opened_private_file(path) as descriptor,
+        os.fdopen(descriptor, "rb", closefd=False) as private_file,
+    ):
+        content = private_file.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise UnsafeStoragePathError(f"private file exceeds its size limit: {path}")
+    return content
+
+
+def remove_private_file(path: Path) -> bool:
+    """Remove one owner-owned regular file without following symlinks."""
+    _require_absolute(path)
+    try:
+        with _secured_directory(path.parent) as parent_descriptor:
+            metadata = os.stat(path.name, dir_fd=parent_descriptor, follow_symlinks=False)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise UnsafeStoragePathError(f"private file is not a regular file: {path}")
+            if metadata.st_uid != os.geteuid():
+                raise UnsafeStoragePathError(f"private file has a different owner: {path}")
+            os.unlink(path.name, dir_fd=parent_descriptor)
+            os.fsync(parent_descriptor)
+            return True
+    except FileNotFoundError:
+        return False
 
 
 def atomic_write_private(path: Path, content: bytes) -> None:
