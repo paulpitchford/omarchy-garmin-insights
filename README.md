@@ -19,6 +19,26 @@ The plugin ID is `io.github.paulpitchford.garmin-insights`.
 
 The plugin only reads activity summaries. It does not upload, edit, schedule, or delete Garmin data, and it does not download FIT files or routes.
 
+## Roadmap
+
+### Required before 0.1
+
+Two feature phases remain before the first release: activity drill-down and update awareness. They are planned but are not available in the current build.
+
+- Open a bounded activity list from the selected period or an activity-type row.
+- Select an activity to see the allowlisted details already stored in the local database.
+- Use an explicit action to open that activity on Garmin Connect in the default browser.
+- Keep list and detail reads local. Drill-down will not make another Garmin API request or download routes, maps, or FIT files.
+- Fix and retest private cache-directory creation before the first dependency command.
+- Test an update from the current aggregate-only build to the drill-down build while retaining plugin settings, tokens, account scope, and normalized activities.
+- Add a bounded top-level **Update available** indicator for supported Git-managed installs. It will check the fixed public repository at most once per 24 hours and offer a visible review action, but it will never update the checkout by itself.
+
+The external link will be built from a fixed Garmin Connect HTTPS address and a validated numeric activity ID. Garmin data will not be allowed to provide a URL, host, scheme, path, or command. The browser uses its own Garmin session; plugin OAuth tokens will not be passed to it.
+
+### After 0.1
+
+Later design work may add optional daily health cards and bar metrics for Body Battery, steps, sleep, stress, training readiness, HRV, resting heart rate, intensity minutes, floors, and calories. Seven-day trends and panel controls for card order and visibility are also under consideration. Garmin China support remains an open decision.
+
 ## Requirements
 
 - Omarchy with the Quattro shell plugin commands (`omarchy plugin` and `omarchy bar`).
@@ -101,13 +121,21 @@ omarchy bar set io.github.paulpitchford.garmin-insights refreshMinutes 60 --json
 
 ## Update
 
-Update the Git checkout with Omarchy's reviewed update flow:
+Updates are manual. An installed plugin is a Git checkout whose `origin` remains this repository. Omarchy does not automatically move it to a release tag or notify the plugin when a newer version exists.
+
+Run:
 
 ```bash
 omarchy plugin update io.github.paulpitchford.garmin-insights
 ```
 
-Omarchy shows the incoming diff before fast-forwarding the checkout. If the update changes `pyproject.toml` or `uv.lock`, rerun the locked dependency setup in a visible terminal:
+The command fetches the repository's default branch. If there are changes, Omarchy shows the diff and asks for confirmation, performs a fast-forward-only update, validates the resulting plugin, and tells the shell to rescan plugins. A validation failure is rolled back automatically. Local changes inside the installed checkout can prevent a fast-forward, so treat that checkout as managed code rather than a customization directory.
+
+Release tags provide auditable version points, but the default branch is the delivery channel used by `omarchy plugin update`. Changes are therefore developed and reviewed on branches, and the default branch must remain installable. The permanent plugin ID keeps bar settings attached to the plugin, while tokens, account scope, the activity database, and the summary cache remain in their separate XDG locations during code updates.
+
+Before 0.1, the roadmap adds optional update awareness to the top-level panel. A supported Git-managed checkout will compare its local commit with the fixed public default branch no more than once per 24 hours. A different commit will show **Update available** and a **Review update** action. That action will open the existing Omarchy command in a visible terminal, where the user still sees the diff and confirmation prompt. The plugin will not fetch and merge its own code. The check is planned to be enabled by default with an explicit setting to turn it off. Its unauthenticated request to GitHub will be documented before the feature is enabled.
+
+Python application code is installed from the checkout in the dedicated environment. If an update only changes that source, the existing environment continues to use the updated checkout. If `pyproject.toml` or `uv.lock` changes, rerun the locked dependency setup in a visible terminal before relying on the updated backend:
 
 ```bash
 PLUGIN_DIR="$HOME/.config/omarchy/plugins/io.github.paulpitchford.garmin-insights"
