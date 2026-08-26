@@ -1,5 +1,11 @@
 # Third-party notices
 
+## uv
+
+This project directly uses [uv](https://github.com/astral-sh/uv) to create and run the locked Python environment. uv is distributed under the Apache License 2.0 or the MIT License, at the user's option.
+
+uv is an external prerequisite and is not copied into this repository. Its upstream [licensing files](https://github.com/astral-sh/uv#license) contain the authoritative licence text.
+
 ## python-garminconnect
 
 This project directly uses [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) 0.3.11, distributed under the MIT License.

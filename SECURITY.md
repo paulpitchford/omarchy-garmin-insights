@@ -10,7 +10,7 @@ General bugs that contain no sensitive information may use the public issue trac
 
 ## Security boundaries
 
-This plugin will run unsandboxed inside `omarchy-shell` with the current user's permissions. Its Python backend will also run as the current user. The project therefore treats every command, dependency, file path, and remote response as a security boundary.
+This plugin runs unsandboxed inside `omarchy-shell` with the current user's permissions. Its Python backend also runs as the current user. The project treats every command, dependency, file path, and remote response as a security boundary.
 
 The implementation must:
 
@@ -26,7 +26,7 @@ The implementation must:
 - pin Python dependencies in a reviewed lockfile; and
 - require explicit confirmation before logout or local data deletion.
 
-The first release will not download FIT files and will not upload, edit, or delete Garmin account data.
+The plugin does not download FIT files and does not upload, edit, or delete Garmin account data.
 
 ## Current authentication boundary
 
@@ -44,4 +44,4 @@ The backend validates a maximum of 20,000 activities per refresh. It keeps only 
 
 ## Supported versions
 
-The project is not yet released. A supported-version policy will be published with the first release.
+The project has no released versions yet. Security fixes are made on the default branch during release preparation. A versioned support policy will be published with the first release.

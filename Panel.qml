@@ -302,7 +302,7 @@ Panel {
 
           Text {
             width: parent.width
-            text: "←/→ period · Enter action · R refresh · Tab switch panel · Esc close"
+            text: "←/→ period · Enter · R refresh · Tab · Esc close"
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption

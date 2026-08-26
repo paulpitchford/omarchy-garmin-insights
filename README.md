@@ -1,107 +1,349 @@
 # Garmin Activities for Omarchy
 
-Garmin Activities for Omarchy is a planned bar plugin for viewing recent Garmin Connect activity totals. It will cover today and the last 7, 30, and 90 calendar days, with breakdowns that respect the differences between cycling, running, walking, swimming, strength training, and other activity types.
+Garmin Activities is an Omarchy Quattro bar plugin that shows recent Garmin Connect activity totals. It covers today and the last 7, 30, and 90 calendar days, with separate rows for each Garmin activity type.
 
 > [!IMPORTANT]
-> This project is pre-alpha and is not ready for normal installation. The manifest, shared QML service, bar widget, details panel, and synthetic demo mode are implemented. Release preparation, installation instructions, and clean-install testing remain.
+> This project is still preparing its first release. The plugin is installable for testing, but the public clean-install and release checklist is not yet complete.
 
-The intended plugin ID is `io.github.paulpitchford.garmin-activities`.
+![Garmin Activities panel showing fabricated demo data](preview.png)
 
-## Planned behaviour
+The plugin ID is `io.github.paulpitchford.garmin-activities`.
 
-The first release will:
+## What it does
 
-- connect to one Garmin account through an interactive terminal login;
-- support Garmin MFA without storing the account password;
-- fetch activity summaries through the read-only parts of `python-garminconnect`;
-- keep a local, normalised activity database for incremental refreshes;
-- show cached information while offline;
-- handle missing metrics and unfamiliar activity types without treating them as zero;
-- store measurements in SI units and convert them for display; and
-- avoid downloading FIT files because the activity summary API already provides the data needed for the first version.
+- Shows activity count, duration, distance, and energy for the selected period.
+- Breaks totals down by Garmin's original activity type, including types the plugin does not already know.
+- Supports metric, imperial, or locale-selected units.
+- Keeps a rolling 90-day local database and a smaller summary cache for the interface.
+- Refreshes every 30 minutes by default and continues showing the last valid summary while offline.
+- Uses a visible terminal for Garmin login and supports MFA in the same login process.
+- Works on horizontal and vertical bars and shares one refresh service across monitors.
+- Includes a synthetic demo mode that does not contact Garmin.
 
-The plugin will not upload, edit, or delete Garmin data.
+The plugin only reads activity summaries. It does not upload, edit, schedule, or delete Garmin data, and it does not download FIT files or routes.
 
-## Technical outline
+## Requirements
 
-Omarchy runs plugins inside one long-lived Quickshell process. This plugin will use a singleton QML service for scheduling and shared state, plus a bar widget and its panel. The service will run a short-lived Python command when data needs refreshing. There will be no Python daemon or systemd service.
+- Omarchy with the Quattro shell plugin commands (`omarchy plugin` and `omarchy bar`).
+- [`uv`](https://github.com/astral-sh/uv) at one of these paths:
+  - `/usr/bin/uv`
+  - `~/.local/bin/uv`
+  - `~/.local/share/mise/shims/uv`
+- A Garmin Connect account and network access for login and refreshes.
+- An absolute `XDG_RUNTIME_DIR`, as provided by a normal Omarchy desktop session.
 
-The Python backend uses a locked `uv` environment. Authentication, activity fetching, SQLite storage, and the bounded JSON summary cache are implemented. QML reads that cache rather than credentials, raw Garmin responses, or SQLite. The service validates the cache contract again before exposing values to the widget.
+`uv` installs the required Python version and the locked backend packages. If you use the mise shim, install or configure `uv` through mise before setup; invoking the shim remains subject to your mise configuration and may trigger mise's own version resolution or download process. The plugin does not need root access and does not install a system service.
 
-A refresh uses a seven-day overlap unless the current local date has no successful full reconciliation. In that case, it fetches the current 90-day window. Full reconciliations remove records that have aged out of that window. The Garmin call has one retry for transient network or server failures and a 120-second deadline for the complete request. Authentication failures and HTTP 429 responses fail without a retry. The QML service runs this command every 30 minutes by default and keeps the last successful summary available when a refresh fails.
+## Install
 
-Machine-readable commands use a versioned JSON envelope. Errors contain only a reviewed code and fixed safe message; unexpected exception text and command arguments are not reflected in output. Process statuses are grouped by category: `0` for success, `2` for invalid arguments, `10` for configuration, `20` for authentication, `30` for network or remote-service failures, `40` for invalid data, `50` for local storage, `60` for concurrency, and `70` for unexpected internal failures. Some categories are reserved for commands implemented in later phases.
-
-Authentication commands are available now:
-
-```bash
-uv run --locked omarchy-garmin-activities auth status --json
-uv run --locked omarchy-garmin-activities auth login
-uv run --locked omarchy-garmin-activities auth logout --confirm
-uv run --locked omarchy-garmin-activities auth purge --confirm
-```
-
-Run `auth login` in a visible terminal. It reads the password and any MFA code with hidden input in the same Python process. `auth status` checks local configuration only, so stored tokens are reported as configured but unverified until `auth login` or a later Garmin request succeeds. Logout removes tokens but keeps account-scoped local data. Purge removes the token, account scope, and all other known plugin data files. Both operations are idempotent and require `--confirm`.
-
-Activity synchronization commands are also available:
+Review the repository before installing because Omarchy plugins run unsandboxed with your user account's permissions. Then add and enable it:
 
 ```bash
-uv run --locked omarchy-garmin-activities refresh --json
-uv run --locked omarchy-garmin-activities refresh --json --full
+omarchy plugin add https://github.com/paulpitchford/omarchy-garmin-activities.git --enable
 ```
 
-`refresh` requires stored tokens and an absolute `XDG_RUNTIME_DIR`. It acquires a non-blocking owner-only lock, so two refresh processes cannot overlap. The first refresh each local day is a full reconciliation; `--full` requests one explicitly. A failed fetch, malformed response, account mismatch, or interrupted database transaction leaves the previous activity rows intact. After reconciliation, the command rebuilds the complete 90-day summary and atomically replaces the previous cache.
+The plugin checkout is stored at:
 
-## Summary cache contract
+```text
+~/.config/omarchy/plugins/io.github.paulpitchford.garmin-activities
+```
 
-The summary cache is versioned separately from the CLI envelope. Schema version 1 contains today, 7-day, 30-day, and 90-day periods. Each period has overall totals and breakdowns by Garmin's original activity type key. Type keys are kept as display text, including unfamiliar values; the cache does not group them into a different stored type.
+Left-click the Garmin bar item to open its panel, then select **Set up backend**. A visible terminal runs the locked dependency setup. The Python environment is stored outside the plugin checkout at:
 
-The first contract includes activity count, duration, moving duration, distance, elevation gain, energy, average and maximum heart rate, average speed, average power, sets, and repetitions. Measurements remain in SI units. Every metric includes a `contributingActivityCount`. A metric is `null` when no activity supplied a usable value, and missing measurements never add zero to a total.
+```text
+$XDG_CACHE_HOME/omarchy-garmin-activities/uv-environment
+```
 
-Average heart rate and average power are weighted by activity duration. Average speed is weighted by moving duration. Values without a positive matching duration do not contribute to those weighted averages. Maximum heart rate is the highest supplied value. Other measurements are sums of supplied values.
+When `XDG_CACHE_HOME` is unset, the path starts at `~/.cache`.
 
-The cache is limited to 20,000 activities, 256 original type keys, and 1 MiB of JSON. It does not contain activity names, Garmin activity IDs, start times, coordinates, or routes.
+After setup finishes, select **Connect Garmin**. Enter the Garmin email in the terminal. Password and MFA input are hidden. The password and MFA code stay in that login process and are not written to files, command arguments, environment variables, QML properties, or logs.
 
-## Privacy and security
+A successful login starts the first refresh. The first refresh of each local calendar day reconciles the complete rolling 90-day window. Later refreshes reconcile a seven-day overlap.
 
-Garmin activity data can reveal routines, health information, and location. The implementation will follow these rules:
+### Try the interface without Garmin
 
-- Login happens in a visible terminal. Passwords and MFA codes are never passed through command arguments or environment variables.
-- Only Garmin tokens are retained. They are stored at `$XDG_STATE_HOME/omarchy-garmin-activities/auth/garmin_tokens.json` with owner-only permissions.
-- A pseudonymous account fingerprint is stored at `$XDG_DATA_HOME/omarchy-garmin-activities/account_scope.json` to prevent data from two accounts being merged. The raw Garmin account identifier, email address, and profile response are not saved.
-- Normalised activity data is stored at `$XDG_DATA_HOME/omarchy-garmin-activities/activities.sqlite3` with owner-only permissions. The current 90-day window is retained.
-- Aggregates for the QML interface are stored at `$XDG_CACHE_HOME/omarchy-garmin-activities/summary.json` with owner-only permissions. The cache excludes activity names, identifiers, and start times.
-- The allowlisted activity fields are the Garmin activity ID, optional name, original type key, local start time and date, duration, moving duration, distance, elevation gain, energy, average and maximum heart rate, average speed, average power, total sets, and total repetitions. Energy is converted from Garmin kilocalories to joules; other measurements remain in their canonical stored units.
-- Complete Garmin API responses are not saved.
-- Coordinates, routes, profile responses, and email addresses are not written to the activity database or display cache.
-- FIT, GPX, TCX, and KML files are not downloaded by the first release.
-- Tests and demos use fabricated data. Personal Garmin exports do not belong in this repository.
-- Removing the plugin does not silently delete local data. Disconnect and purge actions will require explicit confirmation.
+Demo mode uses only fabricated data:
 
-See [SECURITY.md](SECURITY.md) for reporting instructions.
+```bash
+omarchy bar set io.github.paulpitchford.garmin-activities demoMode true --json
+```
 
-## Dependencies and network access
+Turn it off before connecting an account:
 
-The backend uses:
+```bash
+omarchy bar set io.github.paulpitchford.garmin-activities demoMode false --json
+```
 
-- [uv](https://github.com/astral-sh/uv) for the locked Python environment; and
-- [python-garminconnect](https://github.com/cyberjunky/python-garminconnect) 0.3.11, an MIT-licensed, unofficial Garmin Connect client installed from PyPI.
+## Use
 
-The direct dependency is fixed in `pyproject.toml`, and all transitive versions and package hashes are recorded in `uv.lock`. During plugin setup, `uv` stores the Python environment at `$XDG_CACHE_HOME/omarchy-garmin-activities/uv-environment` so generated dependency symlinks do not enter the plugin checkout. It downloads packages from `pypi.org` and `files.pythonhosted.org`. Garmin authentication can contact `sso.garmin.com`, `connect.garmin.com`, `connectapi.garmin.com`, `diauth.garmin.com`, and `mobile.integration.garmin.com`. The backend does not send credentials anywhere else.
+- Left-click the bar item to open or close the panel.
+- Middle-click to refresh.
+- Right-click to run the action needed for the current state: setup, login, retry, or refresh.
+- In the panel, use Left and Right to change period, Enter for the main action, `R` to refresh, Tab to switch panels, and Escape to close.
 
-Activity refreshes use the read-only `/activitylist-service/activities/search/activities` endpoint on `connectapi.garmin.com` through `get_activities_by_date`, without an activity-type filter. `python-garminconnect` is not an official Garmin API. Garmin may change or rate-limit the web services it uses.
+The horizontal bar shows the selected period's activity count. A vertical bar uses an icon-only form.
+
+### Settings
+
+Settings can be changed through the Omarchy bar settings interface or with `omarchy bar set`:
+
+| Setting | Values | Default |
+|---|---|---|
+| `period` | `today`, `7Days`, `30Days`, `90Days` | `7Days` |
+| `units` | `auto`, `metric`, `imperial` | `auto` |
+| `refreshMinutes` | 5 to 360 | 30 |
+| `demoMode` | `true`, `false` | `false` |
+
+Examples:
+
+```bash
+omarchy bar set io.github.paulpitchford.garmin-activities period 30Days
+omarchy bar set io.github.paulpitchford.garmin-activities units metric
+omarchy bar set io.github.paulpitchford.garmin-activities refreshMinutes 60 --json
+```
+
+## Update
+
+Update the Git checkout with Omarchy's reviewed update flow:
+
+```bash
+omarchy plugin update io.github.paulpitchford.garmin-activities
+```
+
+Omarchy shows the incoming diff before fast-forwarding the checkout. If the update changes `pyproject.toml` or `uv.lock`, rerun the locked dependency setup in a visible terminal:
+
+```bash
+PLUGIN_DIR="$HOME/.config/omarchy/plugins/io.github.paulpitchford.garmin-activities"
+if [[ ${XDG_CACHE_HOME:-} = /* ]]; then
+  CACHE_ROOT="$XDG_CACHE_HOME"
+else
+  CACHE_ROOT="$HOME/.cache"
+fi
+
+if [[ -x /usr/bin/uv ]]; then
+  UV_BIN=/usr/bin/uv
+elif [[ -x "$HOME/.local/bin/uv" ]]; then
+  UV_BIN="$HOME/.local/bin/uv"
+else
+  UV_BIN="$HOME/.local/share/mise/shims/uv"
+fi
+
+UV_PROJECT_ENVIRONMENT="$CACHE_ROOT/omarchy-garmin-activities/uv-environment" \
+  "$UV_BIN" --directory "$PLUGIN_DIR" sync --locked --no-dev
+```
+
+## Backend commands
+
+The panel runs routine commands through `uv run --locked --no-sync`. To run the same backend manually, prepare these variables in a terminal:
+
+```bash
+PLUGIN_DIR="$HOME/.config/omarchy/plugins/io.github.paulpitchford.garmin-activities"
+if [[ ${XDG_CACHE_HOME:-} = /* ]]; then
+  CACHE_ROOT="$XDG_CACHE_HOME"
+else
+  CACHE_ROOT="$HOME/.cache"
+fi
+UV_PROJECT_ENVIRONMENT="$CACHE_ROOT/omarchy-garmin-activities/uv-environment"
+
+if [[ -x /usr/bin/uv ]]; then
+  UV_BIN=/usr/bin/uv
+elif [[ -x "$HOME/.local/bin/uv" ]]; then
+  UV_BIN="$HOME/.local/bin/uv"
+else
+  UV_BIN="$HOME/.local/share/mise/shims/uv"
+fi
+
+backend() {
+  UV_PROJECT_ENVIRONMENT="$UV_PROJECT_ENVIRONMENT" \
+    "$UV_BIN" --directory "$PLUGIN_DIR" run --locked --no-sync \
+    omarchy-garmin-activities "$@"
+}
+```
+
+Available commands:
+
+```bash
+backend doctor
+backend doctor --json
+backend auth status --json
+backend auth login
+backend auth logout --confirm
+backend auth purge --confirm
+backend refresh --json
+backend refresh --json --full
+```
+
+Run `auth login` only in a visible interactive terminal. `auth status` checks local files and makes no Garmin request, so configured tokens remain "unverified" until login or refresh succeeds.
+
+`auth logout --confirm` removes Garmin tokens but keeps the account scope, activity database, and summary cache. `auth purge --confirm` removes all known authentication and activity data. Purge does not remove the downloaded Python environment.
+
+## Storage and privacy
+
+The backend applies standard XDG defaults when state, data, or cache variables are unset.
+
+| Data | Path | Retention |
+|---|---|---|
+| Garmin tokens | `$XDG_STATE_HOME/omarchy-garmin-activities/auth/garmin_tokens.json` | Until logout or purge |
+| Account fingerprint | `$XDG_DATA_HOME/omarchy-garmin-activities/account_scope.json` | Until purge |
+| Normalised activities | `$XDG_DATA_HOME/omarchy-garmin-activities/activities.sqlite3` | Current rolling 90 days |
+| Interface summary | `$XDG_CACHE_HOME/omarchy-garmin-activities/summary.json` | Replaced after a successful refresh |
+| Refresh lock | `$XDG_RUNTIME_DIR/omarchy-garmin-activities/sync.lock` | Runtime coordination only |
+| Python environment | `$XDG_CACHE_HOME/omarchy-garmin-activities/uv-environment` | Until removed manually |
+
+Defaults are `~/.local/state`, `~/.local/share`, and `~/.cache`. Private application data directories are secured to mode `0700`; private files use mode `0600`. Storage operations reject unsafe final symlinks, unexpected owners, non-regular files, and oversized private files.
+
+The account fingerprint is a one-way SHA-256 value used to prevent data from two Garmin accounts being merged. The raw account identifier, email address, and Garmin profile response are not saved.
+
+The activity allowlist contains Garmin activity ID, optional activity name, original type key, local start time and date, duration, moving duration, distance, elevation gain, energy, average and maximum heart rate, average speed, average power, total sets, and total repetitions. Activity names, identifiers, and start times are excluded from the QML summary. Coordinates, routes, maps, raw responses, and complete profile data are not persisted.
+
+See [SECURITY.md](SECURITY.md) for reporting instructions and the complete security boundary.
+
+## Disconnect, purge, and remove
+
+Disable the plugin before maintenance so its shared service does not start another refresh:
+
+```bash
+omarchy plugin disable io.github.paulpitchford.garmin-activities
+```
+
+To disconnect while retaining local activity data, run the [backend command setup](#backend-commands), then:
+
+```bash
+backend auth logout --confirm
+```
+
+To delete known Garmin tokens, account scope, activities, and summary data:
+
+```bash
+backend auth purge --confirm
+```
+
+Remove the plugin checkout separately:
+
+```bash
+omarchy plugin remove io.github.paulpitchford.garmin-activities
+```
+
+Plugin removal intentionally leaves local data and the Python environment in place. To remove the dependency environment after purge and plugin removal:
+
+```bash
+if [[ ${XDG_CACHE_HOME:-} = /* ]]; then
+  CACHE_ROOT="$XDG_CACHE_HOME"
+else
+  CACHE_ROOT="$HOME/.cache"
+fi
+rm -rf -- "$CACHE_ROOT/omarchy-garmin-activities/uv-environment"
+```
+
+Purge leaves empty application directories and the runtime lock. They contain no Garmin data. You may remove empty directories with `rmdir`, and the runtime directory is normally cleared when the user session ends.
+
+Neither logout nor purge revokes tokens on Garmin's servers. They only remove local files.
+
+## Network access and dependencies
+
+Setup downloads locked packages from `pypi.org` and `files.pythonhosted.org`. If Python 3.13 is unavailable, `uv` can download a managed CPython build from the `astral-sh/python-build-standalone` releases through `github.com` and `release-assets.githubusercontent.com`.
+
+The backend runtime dependency set is:
+
+| Package | Version | Relationship | Licence |
+|---|---:|---|---|
+| `garminconnect` | 0.3.11 | Direct | MIT |
+| `curl-cffi` | 0.16.2 | Transitive | MIT |
+| `certifi` | 2026.7.22 | Transitive | MPL-2.0 |
+| `cffi` | 2.1.1 | Transitive | MIT-0 |
+| `pycparser` | 3.0 | Transitive | BSD-3-Clause |
+| `requests` | 2.34.2 | Transitive | Apache-2.0 |
+| `charset-normalizer` | 3.5.1 | Transitive | MIT |
+| `idna` | 3.19 | Transitive | BSD-3-Clause |
+| `urllib3` | 2.7.0 | Transitive | MIT |
+| `ua-generator` | 2.1.3 | Transitive | Apache-2.0 |
+
+Versions, source archives, and hashes are fixed in `uv.lock`. Package metadata and installed licence files are authoritative for transitive notices. Direct dependency notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Omarchy supplies the plugin host, Quickshell, Qt, `qs.Commons`, `qs.Ui`, and the terminal launcher. The repository does not redistribute those system components. `uv` supplies a compatible CPython runtime when one is not already available. A selected mise shim can also contact destinations configured by mise; that tool-manager traffic is outside the plugin's fixed package and Garmin host list.
+
+Garmin authentication can contact:
+
+- `sso.garmin.com`
+- `connect.garmin.com`
+- `connectapi.garmin.com`
+- `diauth.garmin.com`
+- `mobile.integration.garmin.com`
+
+Activity refreshes use the read-only `/activitylist-service/activities/search/activities` endpoint on `connectapi.garmin.com` through `get_activities_by_date`, without an activity-type filter.
+
+`python-garminconnect` is an unofficial client. Garmin may change or rate-limit the web services it uses.
+
+### Commands executed by the plugin
+
+The QML service uses fixed executable paths and direct argument arrays:
+
+- `/usr/bin/test -x` checks the three accepted `uv` locations.
+- `/usr/bin/env` sets only `UV_PROJECT_ENVIRONMENT` for each backend process.
+- The selected `uv` runs `run --locked --no-sync omarchy-garmin-activities auth status --json` and `run --locked --no-sync omarchy-garmin-activities refresh --json` in the background.
+- `/usr/share/omarchy/bin/omarchy-launch-terminal` opens visible setup and login terminals.
+- Setup runs `uv sync --locked --no-dev`.
+- Login runs `uv run --locked --no-sync omarchy-garmin-activities auth login`.
+
+The Python backend does not start subprocesses. It reads and writes only the documented local paths and makes the documented Garmin requests.
+
+## Troubleshooting
+
+### Backend setup required
+
+Install `uv` at one of the accepted paths listed under [Requirements](#requirements), then reopen the panel and select **Set up backend**. The plugin does not download or execute an installer for `uv`.
+
+If setup was interrupted, select **Set up backend** again. The locked sync is idempotent.
+
+### Connect or reconnect Garmin
+
+Open the panel and select **Connect Garmin** or **Reconnect Garmin**. Authentication failures and HTTP 429 responses are not retried automatically. A rate limit should be allowed to expire before trying again.
+
+If a different Garmin account reports `account_mismatch`, the retained data belongs to the previous account scope. Use logout to reconnect the same account, or purge explicitly before adopting a different account.
+
+### Offline or stale summary
+
+The plugin keeps the last valid cache after network failures, rate limiting, malformed Garmin data, an interrupted database update, or an interrupted cache write. It marks the summary stale rather than replacing missing measurements with zero.
+
+Middle-click the widget or press `R` in the panel to retry. Only one refresh can run at a time. A refresh has a 120-second overall Garmin request deadline and at most one retry for transient network or server failures.
+
+### No cached summary
+
+A first successful refresh is needed before real data can be displayed. If the cache is missing or invalid, the backend rebuilds it after the next successful refresh. QML never queries SQLite directly.
+
+### Local storage error
+
+Run:
+
+```bash
+backend doctor
+```
+
+Check the reported XDG paths. The application directories and files must belong to the current user and must not be replaced with symlinks. A refresh also requires an absolute `XDG_RUNTIME_DIR`.
+
+### Inspect safe machine output
+
+Use the JSON forms of `doctor`, `auth status`, and `refresh`. Errors contain a reviewed code and fixed message. Unknown exception text, remote response bodies, credentials, and command arguments are not reflected in output.
+
+Process exit categories are `0` for success, `2` for invalid arguments, `10` for configuration, `20` for authentication, `30` for network or Garmin service failures, `40` for invalid data, `50` for local storage, `60` for concurrency, and `70` for unexpected internal failures.
+
+## Summary contract
+
+Summary schema version 1 contains today, 7-day, 30-day, and 90-day periods. Today includes today. The other periods include today and the preceding 6, 29, or 89 local dates.
+
+Every metric has a `contributingActivityCount`. A metric is `null` when no activity supplied a usable value; missing measurements are never converted to zero. Average heart rate and average power are weighted by activity duration. Average speed is weighted by moving duration. Values without a positive matching duration do not contribute. Maximum heart rate is the highest supplied value, and the remaining measurements are sums.
+
+The cache is limited to 20,000 activities, 256 original activity type keys, and 1 MiB of JSON. Measurements remain in SI units until the QML presentation boundary.
 
 ## Development
 
-The Python backend targets Python 3.12 and 3.13. The checked-in `.python-version` selects Python 3.13 for development, and `uv` can install it when needed.
-
-Set up the locked environment:
+The Python backend supports Python 3.12 and 3.13. Set up the development environment:
 
 ```bash
 uv sync --locked --dev
 ```
 
-Run the complete local quality suite:
+Run the Python quality suite:
 
 ```bash
 uv run ruff format --check .
@@ -111,14 +353,7 @@ uv run pytest
 uv run pyscn check --max-complexity 12 --max-cycles 0 src
 ```
 
-Inspect the current backend contract:
-
-```bash
-uv run --locked omarchy-garmin-activities doctor
-uv run --locked omarchy-garmin-activities doctor --json
-```
-
-GitHub Actions runs the Python formatting, linting, typing, testing, coverage, and structural checks. During phase 5, run the QML model tests and local Omarchy checks as well:
+Run QML and Omarchy checks:
 
 ```bash
 QT_QPA_PLATFORM=offscreen /usr/lib/qt6/bin/qmltestrunner -input tests/qml
@@ -129,15 +364,13 @@ omarchy plugin validate "$PLUGIN_DIR"
   "$PLUGIN_DIR/Service.qml"
 ```
 
-`PLUGIN_DIR` should point to a clean plugin checkout or staging copy, not a development tree containing `.venv` symlinks. The project rules are in [AGENTS.md](AGENTS.md).
+`PLUGIN_DIR` must point to a clean checkout or staging copy. A development tree containing `.venv` symlinks is intentionally rejected by Omarchy validation.
 
-## Project status
-
-The repository now has a typed Python backend and the phase 5 QML interface. The shared service schedules refreshes, watches the summary cache, maps backend failures to display states, and launches setup or login in a visible terminal. The bar widget and details panel support horizontal and vertical bars, keyboard controls, panel switching, unit conversion, and fabricated demo data. Tests cover cache validation and display states. Local shell tests cover every bar orientation, keyboard dismissal, panel switching, shell restart, stale and malformed caches, and one shared backend refresh across a physical and emulated monitor. Installation instructions will be added during release preparation.
+Tests and previews must use fabricated identities and activities. Do not add Garmin exports, tokens, FIT files, routes, coordinates, account details, or personal API responses to this repository.
 
 ## Disclaimer
 
-This is an independent community project. It is not affiliated with, sponsored by, or endorsed by Garmin, Omarchy, 37signals, or the Omarchy Plugins marketplace. Activity information is provided for personal reference and is not medical advice.
+This is an independent community project. It is not affiliated with, sponsored by, or endorsed by Garmin, Omarchy, 37signals, or the Omarchy Plugins marketplace. Activity information is for personal reference and is not medical advice.
 
 ## License
 
