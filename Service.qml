@@ -163,7 +163,7 @@ Item {
   }
 
   function loadActivityPage(periodKey, asOfDate, typeKey, offset) {
-    var normalizedType = typeKey === undefined || typeKey === "" ? null : String(typeKey)
+    var normalizedType = Model.normalizeActivityTypeFilter(typeKey)
     var normalizedOffset = Math.floor(Number(offset))
     var period = Model.periodByKey(summary, String(periodKey))
     if (!period || period.endDate !== String(asOfDate) || !periodAllowsType(period, normalizedType)

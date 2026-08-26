@@ -172,6 +172,13 @@ TestCase {
       JSON.stringify(syntheticDetailEnvelope(activity)), "900000000002").ok)
   }
 
+  function test_activity_type_filter_keeps_all_activities_as_null() {
+    compare(Model.normalizeActivityTypeFilter(undefined), null)
+    compare(Model.normalizeActivityTypeFilter(null), null)
+    compare(Model.normalizeActivityTypeFilter(""), null)
+    compare(Model.normalizeActivityTypeFilter("running"), "running")
+  }
+
   function test_garmin_connect_url_uses_only_fixed_origin_and_decimal_id() {
     compare(Model.garminConnectUrl("900000000001"),
       "https://connect.garmin.com/app/activity/900000000001")
