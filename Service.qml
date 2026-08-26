@@ -33,11 +33,40 @@ Item {
   property int refreshGeneration: 0
   property bool cacheRootReady: false
   property bool cacheRootTimedOut: false
+  property bool updateChecksEnabled: false
+  property bool updateInitialCheckStarted: false
+  property bool updateSupported: false
+  property bool updateAvailable: false
+  property string updateStage: ""
+  property string updateOutput: ""
+  property bool updateOutputTooLarge: false
+  property bool updateTimedOut: false
+  property bool updateManual: false
+  property string localCommit: ""
+  property string remoteCommit: ""
 
   readonly property string sourceDir: manifest && manifest.__sourceDir ? String(manifest.__sourceDir) : ""
   readonly property string homeDir: Quickshell.env("HOME")
   readonly property string cacheRoot: absoluteEnvironmentPath("XDG_CACHE_HOME", homeDir + "/.cache")
   readonly property string applicationCacheRoot: cacheRoot + "/omarchy-garmin-insights"
+  readonly property string runtimeRoot: absoluteEnvironmentPath("XDG_RUNTIME_DIR", "")
+  readonly property string applicationRuntimeRoot: runtimeRoot === ""
+    ? "" : runtimeRoot + "/omarchy-garmin-insights"
+  readonly property string expectedInstallDir: homeDir
+    + "/.config/omarchy/plugins/io.github.paulpitchford.garmin-insights"
+  readonly property string updateHelperPath: sourceDir + "/src/omarchy_garmin/update_helper.py"
+  readonly property string installedVersion: Model.safeVersion(
+    manifest && manifest.version ? manifest.version : "")
+  readonly property var updateGitEnvironment: ({
+    GIT_ASKPASS: "/usr/bin/false",
+    GIT_CONFIG_COUNT: "0",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
+    HOME: "/nonexistent",
+    SSH_ASKPASS: "/usr/bin/false",
+    XDG_CONFIG_HOME: "/nonexistent"
+  })
   readonly property string summaryPath: applicationCacheRoot + "/summary.json"
   readonly property string pythonEnvironmentPath: applicationCacheRoot + "/uv-environment"
   readonly property var summary: demoMode ? Model.syntheticSummary(nowMs) : cachedSummary
@@ -63,6 +92,8 @@ Item {
     hasSummary: hasSummary
   })
   readonly property bool activityViewRunning: activityListProcess.running || activityDetailProcess.running
+  readonly property bool updateCheckRunning: updateStage !== "" || updateHelperProcess.running
+    || updateGitProcess.running
   readonly property bool processRunning: uvProbe.running || cacheRootProcess.running
     || authStatusProcess.running || refreshProcess.running || activityViewRunning
 
@@ -71,14 +102,20 @@ Item {
     return value.charAt(0) === "/" ? value.replace(/\/$/, "") : fallback
   }
 
-  function configure(minutes, demo) {
+  function configure(minutes, demo, checkUpdates) {
     var parsedMinutes = Math.floor(Number(minutes))
     if (!isFinite(parsedMinutes)) parsedMinutes = 30
     parsedMinutes = Math.max(5, Math.min(360, parsedMinutes))
     var nextDemo = demo === true
     var demoChanged = demoMode !== nextDemo
+    var nextUpdateChecks = checkUpdates !== false
+    var updateSettingChanged = updateChecksEnabled !== nextUpdateChecks
     refreshMinutes = parsedMinutes
     demoMode = nextDemo
+    updateChecksEnabled = nextUpdateChecks
+    if (!nextUpdateChecks && updateSettingChanged) cancelUpdateCheck()
+    else if (nextUpdateChecks && updateSettingChanged && !updateInitialCheckStarted)
+      updateStartupDelay.restart()
     if (demoChanged && demoMode) {
       authStatusProcess.running = false
       refreshProcess.running = false
@@ -94,6 +131,188 @@ Item {
     } else if (demoChanged && !demoMode) {
       checkAuthentication()
     }
+  }
+
+  function cancelUpdateCheck() {
+    updateStartupDelay.stop()
+    updateDeadline.stop()
+    updateStage = ""
+    if (updateHelperProcess.running) updateHelperProcess.signal(9)
+    if (updateGitProcess.running) updateGitProcess.signal(9)
+    updateSupported = false
+    updateAvailable = false
+    localCommit = ""
+    remoteCommit = ""
+    updateInitialCheckStarted = false
+  }
+
+  function completeUpdateCheck() {
+    updateDeadline.stop()
+    updateStage = ""
+    updateOutput = ""
+    updateOutputTooLarge = false
+    updateTimedOut = false
+  }
+
+  function collectUpdateOutput(data) {
+    var line = String(data || "")
+    var next = updateOutput === "" ? line : updateOutput + "\n" + line
+    if (next.length > 1024) {
+      updateOutputTooLarge = true
+      if (updateHelperProcess.running) updateHelperProcess.signal(9)
+      if (updateGitProcess.running) updateGitProcess.signal(9)
+      return
+    }
+    updateOutput = next
+  }
+
+  function startUpdateHelper(stage, extraArguments) {
+    updateStage = stage
+    updateOutput = ""
+    updateOutputTooLarge = false
+    updateTimedOut = false
+    updateHelperProcess.command = ["/usr/bin/python3", updateHelperPath].concat(extraArguments)
+    updateHelperProcess.running = true
+    updateDeadline.interval = 5000
+    updateDeadline.restart()
+  }
+
+  function startUpdateGit(stage, gitArguments, deadlineMs) {
+    updateStage = stage
+    updateOutput = ""
+    updateOutputTooLarge = false
+    updateTimedOut = false
+    updateGitProcess.command = ["/usr/bin/git"].concat(gitArguments)
+    updateGitProcess.running = true
+    updateDeadline.interval = deadlineMs
+    updateDeadline.restart()
+  }
+
+  function startUpdateCheck(manual) {
+    if (!updateChecksEnabled || updateCheckRunning || sourceDir === "") return
+    updateInitialCheckStarted = true
+    updateManual = manual === true
+    if (sourceDir !== expectedInstallDir || applicationRuntimeRoot === "") {
+      updateSupported = false
+      updateAvailable = false
+      completeUpdateCheck()
+      return
+    }
+    startUpdateHelper("validate", ["validate-checkout", sourceDir, expectedInstallDir])
+  }
+
+  function checkUpdatesNow() {
+    if (!updateChecksEnabled || !updateSupported || updateCheckRunning) return
+    startUpdateCheck(true)
+  }
+
+  function handleUpdateHelper(exitCode) {
+    updateDeadline.stop()
+    var stage = updateStage
+    if (stage === "") return
+    if (updateTimedOut || updateOutputTooLarge || exitCode !== 0) {
+      if (stage === "validate") {
+        updateSupported = false
+        updateAvailable = false
+      }
+      completeUpdateCheck()
+      return
+    }
+    if (stage === "validate") {
+      if (updateOutput !== "") {
+        updateSupported = false
+        updateAvailable = false
+        completeUpdateCheck()
+        return
+      }
+      startUpdateGit("top", ["-C", sourceDir, "rev-parse", "--show-toplevel"], 5000)
+      return
+    }
+    if (stage === "claim") {
+      var claim = Model.parseUpdateClaim(updateOutput, localCommit)
+      if (!claim) {
+        completeUpdateCheck()
+        return
+      }
+      remoteCommit = claim.remoteCommit === null ? "" : claim.remoteCommit
+      updateAvailable = Model.commitsDiffer(localCommit, remoteCommit)
+      if (claim.due) {
+        startUpdateGit("remote", [
+          "ls-remote", Model.UPDATE_REPOSITORY_URL, Model.UPDATE_DEFAULT_BRANCH_REF
+        ], 10000)
+      } else completeUpdateCheck()
+      return
+    }
+    completeUpdateCheck()
+  }
+
+  function handleUpdateGit(exitCode) {
+    updateDeadline.stop()
+    var stage = updateStage
+    if (stage === "") return
+    if (updateTimedOut || updateOutputTooLarge || exitCode !== 0) {
+      if (stage !== "remote") {
+        updateSupported = false
+        updateAvailable = false
+      }
+      completeUpdateCheck()
+      return
+    }
+    if (stage === "top") {
+      if (Model.boundedProcessLine(updateOutput, 4096) !== sourceDir) {
+        updateSupported = false
+        updateAvailable = false
+        completeUpdateCheck()
+      } else startUpdateGit("branch", [
+        "-C", sourceDir, "symbolic-ref", "--quiet", "--short", "HEAD"
+      ], 5000)
+      return
+    }
+    if (stage === "branch") {
+      if (Model.boundedProcessLine(updateOutput, 16) !== "main") {
+        updateSupported = false
+        updateAvailable = false
+        completeUpdateCheck()
+      } else startUpdateGit("head", [
+        "-C", sourceDir, "rev-parse", "--verify", "HEAD^{commit}"
+      ], 5000)
+      return
+    }
+    if (stage === "head") {
+      localCommit = Model.parseLocalCommit(updateOutput)
+      if (localCommit === "") {
+        updateSupported = false
+        updateAvailable = false
+        completeUpdateCheck()
+        return
+      }
+      updateSupported = true
+      var claimArguments = [
+        "claim", applicationCacheRoot, applicationRuntimeRoot, localCommit
+      ]
+      if (updateManual) claimArguments.push("--force")
+      startUpdateHelper("claim", claimArguments)
+      return
+    }
+    if (stage === "remote") {
+      var checkedRemote = Model.parseRemoteCommit(updateOutput)
+      if (checkedRemote === "") {
+        completeUpdateCheck()
+        return
+      }
+      remoteCommit = checkedRemote
+      updateAvailable = Model.commitsDiffer(localCommit, remoteCommit)
+      startUpdateHelper("record", [
+        "record", applicationCacheRoot, applicationRuntimeRoot, localCommit, remoteCommit
+      ])
+      return
+    }
+    completeUpdateCheck()
+  }
+
+  function launchUpdateReview() {
+    if (!updateChecksEnabled || !updateSupported || !updateAvailable || updateCheckRunning) return
+    Quickshell.execDetached(Model.updateReviewCommand())
   }
 
   function probeUvCandidate(index) {
@@ -470,6 +689,24 @@ Item {
     }
   }
 
+  Process {
+    id: updateHelperProcess
+    command: []
+    clearEnvironment: true
+    stdout: SplitParser { onRead: function(data) { root.collectUpdateOutput(data) } }
+    onExited: function(exitCode) { root.handleUpdateHelper(exitCode) }
+  }
+
+  Process {
+    id: updateGitProcess
+    command: []
+    workingDirectory: "/"
+    clearEnvironment: true
+    environment: root.updateGitEnvironment
+    stdout: SplitParser { onRead: function(data) { root.collectUpdateOutput(data) } }
+    onExited: function(exitCode) { root.handleUpdateGit(exitCode) }
+  }
+
   Timer {
     id: cacheRootDeadline
     interval: 5000
@@ -512,6 +749,25 @@ Item {
     onTriggered: {
       root.activityDetailTimedOut = true
       activityDetailProcess.running = false
+    }
+  }
+
+  Timer {
+    id: updateStartupDelay
+    interval: 30000
+    onTriggered: root.startUpdateCheck(false)
+  }
+
+  Timer {
+    id: updateDeadline
+    interval: 5000
+    onTriggered: {
+      root.updateTimedOut = true
+      if (updateHelperProcess.running) updateHelperProcess.signal(9)
+      else if (updateGitProcess.running) updateGitProcess.signal(9)
+      else if (["validate", "claim", "record"].indexOf(root.updateStage) !== -1)
+        root.handleUpdateHelper(-1)
+      else root.handleUpdateGit(-1)
     }
   }
 

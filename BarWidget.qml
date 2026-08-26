@@ -27,7 +27,10 @@ BarWidget {
   }
 
   function configureService() {
-    if (service) service.configure(setting("refreshMinutes", 30), setting("demoMode", false))
+    if (service) service.configure(
+      setting("refreshMinutes", 30),
+      setting("demoMode", false),
+      setting("checkForUpdates", true))
     injectPanel()
   }
 

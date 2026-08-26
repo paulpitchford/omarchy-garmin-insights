@@ -44,6 +44,13 @@ Panel {
   readonly property bool imperial: unitsSetting === "imperial"
     || (unitsSetting === "auto" && (Qt.locale().measurementSystem === Locale.ImperialUSSystem
       || Qt.locale().measurementSystem === Locale.ImperialUKSystem))
+  readonly property int summaryBaseCount: currentPeriod ? currentPeriod.byType.length + 1 : 1
+  readonly property bool showUpdateCheck: service && service.updateChecksEnabled
+    && service.updateSupported
+  readonly property int updateCheckIndex: summaryBaseCount
+  readonly property int updateReviewIndex: summaryBaseCount + 1
+  readonly property int summaryCursorCount: summaryBaseCount + (showUpdateCheck ? 1 : 0)
+    + (service && service.updateAvailable && showUpdateCheck ? 1 : 0)
 
   function configuredPeriodIndex() {
     var key = String(setting("period", "7Days"))
@@ -125,15 +132,28 @@ Panel {
     else close()
   }
 
-  function ensureListCursorVisible() {
+  function ensureItemVisible(item) {
+    if (!item) return
+    var point = item.mapToItem(contentColumn, 0, 0)
+    if (point.y < scroll.contentY) scroll.contentY = Math.max(0, point.y)
+    else if (point.y + item.height > scroll.contentY + scroll.height)
+      scroll.contentY = Math.max(0, point.y + item.height - scroll.height)
+  }
+
+  function ensureSummaryCursorVisible() {
     Qt.callLater(function() {
-      var item = listRepeater.itemAt(root.listIndex)
-      if (!item) return
-      var point = item.mapToItem(contentColumn, 0, 0)
-      if (point.y < scroll.contentY) scroll.contentY = Math.max(0, point.y)
-      else if (point.y + item.height > scroll.contentY + scroll.height)
-        scroll.contentY = Math.max(0, point.y + item.height - scroll.height)
+      if (root.summaryIndex === 0) root.ensureItemVisible(browseAllSurface)
+      else if (root.summaryIndex < root.summaryBaseCount)
+        root.ensureItemVisible(summaryTypeRepeater.itemAt(root.summaryIndex - 1))
+      else if (root.summaryIndex === root.updateCheckIndex)
+        root.ensureItemVisible(updateCheckButton)
+      else if (root.summaryIndex === root.updateReviewIndex)
+        root.ensureItemVisible(updateReviewButton)
     })
+  }
+
+  function ensureListCursorVisible() {
+    Qt.callLater(function() { root.ensureItemVisible(listRepeater.itemAt(root.listIndex)) })
   }
 
   function moveCursor(dx, dy) {
@@ -144,8 +164,8 @@ Panel {
     if (viewMode === "summary") {
       if (dx !== 0) movePeriod(dx)
       else if (dy !== 0) {
-        var count = currentPeriod ? currentPeriod.byType.length + 1 : 1
-        summaryIndex = Math.max(0, Math.min(count - 1, summaryIndex + dy))
+        summaryIndex = Math.max(0, Math.min(summaryCursorCount - 1, summaryIndex + dy))
+        ensureSummaryCursorVisible()
       }
       return
     }
@@ -183,6 +203,14 @@ Panel {
     if (!service) return
     if (!cursorActive) cursorActive = true
     if (viewMode === "summary") {
+      if (showUpdateCheck && summaryIndex === updateCheckIndex) {
+        service.checkUpdatesNow()
+        return
+      }
+      if (showUpdateCheck && service.updateAvailable && summaryIndex === updateReviewIndex) {
+        service.launchUpdateReview()
+        return
+      }
       if (!currentPeriod) {
         primaryAction()
         return
@@ -235,6 +263,7 @@ Panel {
   }
 
   onSettingsChanged: periodIndex = configuredPeriodIndex()
+  onSummaryCursorCountChanged: summaryIndex = Math.min(summaryIndex, summaryCursorCount - 1)
   onOpenedChanged: if (opened) {
     periodIndex = configuredPeriodIndex()
     viewMode = "summary"
@@ -400,6 +429,7 @@ Panel {
             }
 
             CursorSurface {
+              id: browseAllSurface
               visible: root.currentPeriod !== null
               width: parent.width
               implicitHeight: browseAllRow.implicitHeight + Style.space(16)
@@ -457,6 +487,7 @@ Panel {
               spacing: Style.space(4)
 
               Repeater {
+                id: summaryTypeRepeater
                 model: root.currentPeriod ? root.currentPeriod.byType : []
 
                 CursorSurface {
@@ -528,6 +559,82 @@ Panel {
                     onClicked: root.openActivityList(modelData.typeKey)
                   }
                 }
+              }
+            }
+
+            PanelSeparator {
+              foreground: root.foreground
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Text {
+                visible: root.service && root.service.updateAvailable && root.showUpdateCheck
+                width: parent.width
+                text: "󰚰  Update available"
+                color: root.urgent
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+              }
+
+              Row {
+                width: parent.width
+                spacing: Style.space(8)
+
+                Text {
+                  width: parent.width - (updateCheckButton.visible ? updateCheckButton.width + Style.space(8) : 0)
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "Installed version " + (root.service ? root.service.installedVersion : "Unknown")
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                Button {
+                  id: updateCheckButton
+                  visible: root.showUpdateCheck
+                  text: root.service && root.service.updateCheckRunning ? "Checking…" : "Check again"
+                  hasCursor: root.cursorActive && root.summaryIndex === root.updateCheckIndex
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  bordered: true
+                  enabled: root.service && !root.service.updateCheckRunning
+                  onHovered: function(on) {
+                    if (on) { root.cursorActive = true; root.summaryIndex = root.updateCheckIndex }
+                  }
+                  onClicked: if (root.service) root.service.checkUpdatesNow()
+                }
+              }
+
+              Button {
+                id: updateReviewButton
+                visible: root.service && root.service.updateAvailable && root.showUpdateCheck
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "Review update"
+                iconText: "󰏌"
+                hasCursor: root.cursorActive && root.summaryIndex === root.updateReviewIndex
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                bordered: true
+                enabled: root.service && !root.service.updateCheckRunning
+                onHovered: function(on) {
+                  if (on) { root.cursorActive = true; root.summaryIndex = root.updateReviewIndex }
+                }
+                onClicked: if (root.service) root.service.launchUpdateReview()
+              }
+
+              Text {
+                visible: root.service && root.service.updateAvailable && root.showUpdateCheck
+                width: parent.width
+                text: "Review the diff in the terminal. If pyproject.toml or uv.lock changed, rerun the README dependency setup, then restart the shell."
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
               }
             }
 

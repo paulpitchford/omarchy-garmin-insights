@@ -6,6 +6,10 @@ var MAX_ACTIVITY_COUNT = 20000
 var MAX_TYPES = 256
 var PERIOD_KEYS = ["today", "7Days", "30Days", "90Days"]
 var PERIOD_DAYS = [1, 7, 30, 90]
+var UPDATE_REPOSITORY_URL = "https://github.com/paulpitchford/omarchy-garmin-insights.git"
+var UPDATE_DEFAULT_BRANCH_REF = "refs/heads/main"
+var PLUGIN_ID = "io.github.paulpitchford.garmin-insights"
+
 var METRIC_KEYS = [
   "durationSeconds",
   "movingDurationSeconds",
@@ -308,6 +312,68 @@ function parseActivityDetailEnvelope(raw, expectedActivityId) {
 
 function normalizeActivityTypeFilter(typeKey) {
   return typeKey === undefined || typeKey === null || typeKey === "" ? null : String(typeKey)
+}
+
+function validCommit(value) {
+  return typeof value === "string" && /^[0-9a-f]{40}$/.test(value)
+}
+
+function boundedProcessLine(raw, maximum) {
+  var text = String(raw || "")
+  if (text.slice(-1) === "\n") text = text.slice(0, -1)
+  if (text.length === 0 || text.length > maximum || /[\r\n\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text))
+    return ""
+  return text
+}
+
+function parseLocalCommit(raw) {
+  var line = boundedProcessLine(raw, 40)
+  return validCommit(line) ? line : ""
+}
+
+function parseRemoteCommit(raw) {
+  var line = boundedProcessLine(raw, 96)
+  var suffix = "\t" + UPDATE_DEFAULT_BRANCH_REF
+  if (line.slice(-suffix.length) !== suffix) return ""
+  var commit = line.slice(0, -suffix.length)
+  return validCommit(commit) ? commit : ""
+}
+
+function parseUpdateClaim(raw, expectedLocalCommit) {
+  var text = String(raw || "")
+  if (text.length === 0 || text.length > 512 || !validCommit(expectedLocalCommit)) return null
+  var value
+  try {
+    value = JSON.parse(text)
+  } catch (error) {
+    return null
+  }
+  if (!hasOnlyKeys(value, ["due", "localCommit", "remoteCommit", "schemaVersion"])
+      || value.schemaVersion !== 1 || typeof value.due !== "boolean"
+      || value.localCommit !== expectedLocalCommit
+      || (value.remoteCommit !== null && !validCommit(value.remoteCommit))) return null
+  return {
+    due: value.due,
+    localCommit: value.localCommit,
+    remoteCommit: value.remoteCommit
+  }
+}
+
+function commitsDiffer(localCommit, remoteCommit) {
+  return validCommit(localCommit) && validCommit(remoteCommit) && localCommit !== remoteCommit
+}
+
+function safeVersion(value) {
+  var text = String(value || "")
+  return text.length <= 32 && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/.test(text)
+    ? text : "Unknown"
+}
+
+function updateReviewCommand() {
+  return [
+    "/usr/share/omarchy/bin/omarchy-launch-terminal",
+    "/usr/bin/omarchy", "plugin", "update", PLUGIN_ID
+  ]
 }
 
 function garminConnectUrl(activityId) {
