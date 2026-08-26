@@ -197,6 +197,56 @@ function syntheticSummary(nowMs) {
   }
 }
 
+function failureKindForCode(code) {
+  var value = String(code || "internal_error")
+  if (value === "rate_limited") return "rateLimited"
+  if (value === "network_unavailable" || value === "remote_service_error") return "offline"
+  if (value === "auth_required" || value === "authentication_failed" || value === "account_mismatch")
+    return "reconnect"
+  if (value === "refresh_in_progress") return ""
+  return "local"
+}
+
+function connectionState(options) {
+  if (options.demoMode) return "connected"
+  if ((options.authStatusRunning || options.refreshRunning) && !options.hasSummary) return "loading"
+  if (!options.backendReady) return "setup"
+  if (options.failureKind === "rateLimited") return "rateLimited"
+  if (options.failureKind === "offline") return "offline"
+  if (options.failureKind === "reconnect") return "reconnect"
+  if (options.failureKind === "local") return options.hasSummary ? "stale" : "localError"
+  if (!options.configured) return "unauthenticated"
+  if (options.summaryStale || options.cacheError !== "") return "stale"
+  if (options.hasSummary) return "connected"
+  return options.refreshing ? "loading" : "stale"
+}
+
+function statusText(state, options) {
+  if (state === "setup") return options.uvAvailable ? "Backend environment is not ready" : "Backend setup required"
+  if (state === "unauthenticated") return "Connect Garmin to begin"
+  if (state === "loading") return "Loading Garmin activities"
+  if (state === "connected") return options.demoMode ? "Synthetic demo data" : "Connected"
+  if (state === "stale") {
+    if (options.cacheError === "missing") return "No cached summary is available"
+    return options.cacheError !== "" ? "Cached summary is invalid" : "Showing an older cached summary"
+  }
+  if (state === "offline") return options.hasSummary ? "Offline · showing cached data" : "Garmin Connect is unavailable"
+  if (state === "rateLimited") return "Garmin rate limit reached"
+  if (state === "reconnect") return "Reconnect Garmin"
+  if (state === "localError") return "Garmin backend reported an error"
+  return "Garmin activities"
+}
+
+function backendCommand(uvPath, sourceDir, pythonEnvironmentPath, extraArguments) {
+  var command = [
+    "/usr/bin/env", "UV_PROJECT_ENVIRONMENT=" + String(pythonEnvironmentPath),
+    String(uvPath), "--directory", String(sourceDir), "run", "--locked", "--no-sync",
+    "omarchy-garmin-activities"
+  ]
+  for (var i = 0; i < extraArguments.length; i++) command.push(String(extraArguments[i]))
+  return command
+}
+
 function periodByKey(summary, key) {
   if (!summary || !Array.isArray(summary.periods)) return null
   for (var i = 0; i < summary.periods.length; i++)

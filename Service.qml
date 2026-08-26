@@ -32,43 +32,29 @@ Item {
   readonly property bool hasSummary: summary !== null
   readonly property double summaryAgeMs: hasSummary ? Math.max(0, nowMs - Number(summary.generatedMs || 0)) : 0
   readonly property bool summaryStale: hasSummary && !demoMode && summaryAgeMs > Math.max(60, refreshMinutes * 2) * 60000
-  readonly property string connectionState: computeState()
-  readonly property string statusText: stateText(connectionState)
+  readonly property string connectionState: Model.connectionState({
+    demoMode: demoMode,
+    backendReady: backendReady,
+    authStatusRunning: authStatusProcess.running,
+    refreshRunning: refreshProcess.running,
+    hasSummary: hasSummary,
+    failureKind: failureKind,
+    configured: configured,
+    summaryStale: summaryStale,
+    cacheError: cacheError,
+    refreshing: refreshing
+  })
+  readonly property string statusText: Model.statusText(connectionState, {
+    uvAvailable: uvPath !== "",
+    demoMode: demoMode,
+    cacheError: cacheError,
+    hasSummary: hasSummary
+  })
   readonly property bool processRunning: uvProbe.running || authStatusProcess.running || refreshProcess.running
 
   function absoluteEnvironmentPath(name, fallback) {
     var value = String(Quickshell.env(name) || "")
     return value.charAt(0) === "/" ? value.replace(/\/$/, "") : fallback
-  }
-
-  function computeState() {
-    if (demoMode) return "connected"
-    if (!backendReady) return "setup"
-    if ((authStatusProcess.running || refreshProcess.running) && !hasSummary) return "loading"
-    if (failureKind === "rateLimited") return "rateLimited"
-    if (failureKind === "offline") return "offline"
-    if (failureKind === "reconnect") return "reconnect"
-    if (failureKind === "local") return hasSummary ? "stale" : "localError"
-    if (!configured) return "unauthenticated"
-    if (summaryStale || cacheError !== "") return "stale"
-    if (hasSummary) return "connected"
-    return refreshing ? "loading" : "stale"
-  }
-
-  function stateText(value) {
-    if (value === "setup") return uvPath === "" ? "Backend setup required" : "Backend environment is not ready"
-    if (value === "unauthenticated") return "Connect Garmin to begin"
-    if (value === "loading") return "Loading Garmin activities"
-    if (value === "connected") return demoMode ? "Synthetic demo data" : "Connected"
-    if (value === "stale") {
-      if (cacheError === "missing") return "No cached summary is available"
-      return cacheError !== "" ? "Cached summary is invalid" : "Showing an older cached summary"
-    }
-    if (value === "offline") return hasSummary ? "Offline · showing cached data" : "Garmin Connect is unavailable"
-    if (value === "rateLimited") return "Garmin rate limit reached"
-    if (value === "reconnect") return "Reconnect Garmin"
-    if (value === "localError") return "Garmin backend reported an error"
-    return "Garmin activities"
   }
 
   function configure(minutes, demo) {
@@ -108,14 +94,8 @@ Item {
     uvProbe.running = true
   }
 
-  function backendCommand(arguments) {
-    var command = [
-      "/usr/bin/env", "UV_PROJECT_ENVIRONMENT=" + pythonEnvironmentPath,
-      uvPath, "--directory", sourceDir, "run", "--locked", "--no-sync",
-      "omarchy-garmin-activities"
-    ]
-    for (var i = 0; i < arguments.length; i++) command.push(arguments[i])
-    return command
+  function backendCommand(extraArguments) {
+    return Model.backendCommand(uvPath, sourceDir, pythonEnvironmentPath, extraArguments)
   }
 
   function checkAuthentication() {
@@ -156,12 +136,7 @@ Item {
 
   function safeFailure(code) {
     failureCode = String(code || "internal_error")
-    if (failureCode === "rate_limited") failureKind = "rateLimited"
-    else if (failureCode === "network_unavailable" || failureCode === "remote_service_error") failureKind = "offline"
-    else if (failureCode === "auth_required" || failureCode === "authentication_failed"
-             || failureCode === "account_mismatch") failureKind = "reconnect"
-    else if (failureCode === "refresh_in_progress") failureKind = ""
-    else failureKind = "local"
+    failureKind = Model.failureKindForCode(failureCode)
   }
 
   function handleStatus(exitCode, raw) {

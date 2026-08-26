@@ -3,7 +3,7 @@
 Garmin Activities for Omarchy is a planned bar plugin for viewing recent Garmin Connect activity totals. It will cover today and the last 7, 30, and 90 calendar days, with breakdowns that respect the differences between cycling, running, walking, swimming, strength training, and other activity types.
 
 > [!IMPORTANT]
-> This project is pre-alpha and is not ready for normal installation. Phase 5 work has added the initial manifest, shared QML service, bar widget, details panel, and synthetic demo mode. Shell integration and failure-path testing are still in progress.
+> This project is pre-alpha and is not ready for normal installation. The manifest, shared QML service, bar widget, details panel, and synthetic demo mode are implemented. Release preparation, installation instructions, and clean-install testing remain.
 
 The intended plugin ID is `io.github.paulpitchford.garmin-activities`.
 
@@ -133,7 +133,7 @@ omarchy plugin validate "$PLUGIN_DIR"
 
 ## Project status
 
-The repository now has a typed Python backend and the first phase 5 QML implementation. The shared service schedules refreshes, watches the summary cache, maps backend failures to display states, and launches setup or login in a visible terminal. The bar widget and details panel support horizontal and vertical bars, keyboard controls, panel switching, unit conversion, and fabricated demo data. Shell lifecycle, multi-monitor, and remaining failure-path tests still need to be completed before installation instructions are added.
+The repository now has a typed Python backend and the phase 5 QML interface. The shared service schedules refreshes, watches the summary cache, maps backend failures to display states, and launches setup or login in a visible terminal. The bar widget and details panel support horizontal and vertical bars, keyboard controls, panel switching, unit conversion, and fabricated demo data. Tests cover cache validation and display states. Local shell tests cover every bar orientation, keyboard dismissal, panel switching, shell restart, stale and malformed caches, and one shared backend refresh across a physical and emulated monitor. Installation instructions will be added during release preparation.
 
 ## Disclaimer
 

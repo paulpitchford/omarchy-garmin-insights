@@ -71,6 +71,78 @@ TestCase {
     compare(Model.typeLabel("<b>synthetic_type</b>"), "<b>synthetic type</b>")
   }
 
+  function stateOptions(overrides) {
+    var options = {
+      demoMode: false,
+      backendReady: true,
+      authStatusRunning: false,
+      refreshRunning: false,
+      hasSummary: true,
+      failureKind: "",
+      configured: true,
+      summaryStale: false,
+      cacheError: "",
+      refreshing: false
+    }
+    for (var key in overrides) options[key] = overrides[key]
+    return options
+  }
+
+  function test_connection_states_cover_expected_failures() {
+    compare(Model.connectionState(stateOptions({ demoMode: true, backendReady: false })), "connected")
+    compare(Model.connectionState(stateOptions({ backendReady: false })), "setup")
+    compare(Model.connectionState(stateOptions({ backendReady: false, authStatusRunning: true, hasSummary: false })), "loading")
+    compare(Model.connectionState(stateOptions({ authStatusRunning: true, hasSummary: false })), "loading")
+    compare(Model.connectionState(stateOptions({ configured: false })), "unauthenticated")
+    compare(Model.connectionState(stateOptions({ failureKind: "rateLimited" })), "rateLimited")
+    compare(Model.connectionState(stateOptions({ failureKind: "offline" })), "offline")
+    compare(Model.connectionState(stateOptions({ failureKind: "reconnect" })), "reconnect")
+    compare(Model.connectionState(stateOptions({ failureKind: "local", hasSummary: false })), "localError")
+    compare(Model.connectionState(stateOptions({ failureKind: "local" })), "stale")
+    compare(Model.connectionState(stateOptions({ summaryStale: true })), "stale")
+    compare(Model.connectionState(stateOptions({ cacheError: "invalid_json" })), "stale")
+    compare(Model.connectionState(stateOptions({})), "connected")
+  }
+
+  function test_stable_error_codes_map_to_display_states() {
+    compare(Model.failureKindForCode("rate_limited"), "rateLimited")
+    compare(Model.failureKindForCode("network_unavailable"), "offline")
+    compare(Model.failureKindForCode("remote_service_error"), "offline")
+    compare(Model.failureKindForCode("auth_required"), "reconnect")
+    compare(Model.failureKindForCode("authentication_failed"), "reconnect")
+    compare(Model.failureKindForCode("account_mismatch"), "reconnect")
+    compare(Model.failureKindForCode("refresh_in_progress"), "")
+    compare(Model.failureKindForCode("local_storage_error"), "local")
+  }
+
+  function test_status_text_never_reflects_backend_error_content() {
+    compare(Model.statusText("offline", { hasSummary: true }), "Offline · showing cached data")
+    compare(Model.statusText("reconnect", {}), "Reconnect Garmin")
+    compare(Model.statusText("localError", {}), "Garmin backend reported an error")
+  }
+
+  function test_backend_command_keeps_each_argument_separate() {
+    compare(Model.backendCommand(
+      "/usr/bin/uv",
+      "/synthetic/plugin",
+      "/synthetic/cache/environment",
+      ["auth", "status", "--json"]
+    ), [
+      "/usr/bin/env",
+      "UV_PROJECT_ENVIRONMENT=/synthetic/cache/environment",
+      "/usr/bin/uv",
+      "--directory",
+      "/synthetic/plugin",
+      "run",
+      "--locked",
+      "--no-sync",
+      "omarchy-garmin-activities",
+      "auth",
+      "status",
+      "--json"
+    ])
+  }
+
   function test_formatters_preserve_missing_values() {
     compare(Model.formatDistance(null, false), "—")
     compare(Model.formatDuration(null), "—")
