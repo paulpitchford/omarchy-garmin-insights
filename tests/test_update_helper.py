@@ -267,6 +267,38 @@ def test_malformed_state_is_replaced_by_due_claim(tmp_path: Path) -> None:
     assert state_payload(cache_root)["localCommit"] == LOCAL_COMMIT
 
 
+@pytest.mark.parametrize(
+    "schema_version",
+    [
+        pytest.param(True, id="boolean"),
+        pytest.param(1.0, id="float"),
+        pytest.param("1", id="string"),
+    ],
+)
+def test_non_integer_state_schema_is_replaced_by_due_claim(
+    tmp_path: Path, schema_version: object
+) -> None:
+    cache_root = tmp_path / "cache"
+    runtime_root = tmp_path / "runtime"
+    cache_root.mkdir()
+    (cache_root / STATE_FILE_NAME).write_text(
+        json.dumps(
+            {
+                "schemaVersion": schema_version,
+                "lastAttemptEpochSeconds": NOW,
+                "localCommit": LOCAL_COMMIT,
+                "remoteCommit": REMOTE_COMMIT,
+            }
+        )
+    )
+
+    claim = claim_update_check(cache_root, runtime_root, LOCAL_COMMIT, NOW + 10)
+
+    assert claim.due is True
+    assert claim.remoteCommit is None
+    assert state_payload(cache_root)["schemaVersion"] == 1
+
+
 def test_symlinked_state_is_rejected_without_touching_target(tmp_path: Path) -> None:
     cache_root = tmp_path / "cache"
     runtime_root = tmp_path / "runtime"
