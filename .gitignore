@@ -1,0 +1,48 @@
+# Local planning
+/PLAN.md
+
+# Credentials and private Garmin data
+.env
+.env.*
+!.env.example
+/.local/
+/auth/
+/state/
+/cache/
+garmin_tokens.json
+*.fit
+*.gpx
+*.tcx
+*.kml
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+build/
+dist/
+
+# QML and test output
+*.qmlc
+*.jsc
+/test-results/
+*.log
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~

@@ -1,0 +1,185 @@
+# Repository guidelines
+
+## Purpose
+
+Build and maintain a public Omarchy Quattro bar plugin that shows recent Garmin Connect activity summaries. The plugin must be useful to people with different activity types, devices, units, and amounts of recorded data.
+
+Keep this file current when architecture, security boundaries, development commands, or release rules change. Keep `README.md` accurate for users. Do not advertise incomplete behaviour as available.
+
+## Project identity
+
+- Repository: `paulpitchford/omarchy-garmin-activities`
+- Permanent plugin ID: `io.github.paulpitchford.garmin-activities`
+- Licence: MIT
+- Garmin client: `python-garminconnect`, used as a pinned external dependency
+- Omarchy namespace: never use the reserved `omarchy.*` prefix
+
+## Hard boundaries
+
+- This is an independent public project. Do not copy code, data, assumptions, credentials, or fixtures from any personal Garmin analysis or coaching repository.
+- Never add real activity exports, FIT files, routes, coordinates, account details, tokens, passwords, MFA codes, health records, or personal API responses.
+- Tests, demos, screenshots, and documentation examples must use fabricated identities and activity data.
+- The plugin is read-only with respect to Garmin. Do not call upload, edit, scheduling, hydration, weigh-in, or deletion methods.
+- Do not edit packaged files under `/usr/share/omarchy/`. Use the user plugin directory while testing.
+- Do not launch a second Quickshell process from the plugin.
+- Do not add telemetry, analytics, advertising, or remote services other than the documented Garmin requests and package sources.
+
+## Architecture
+
+Use these boundaries unless an approved design change updates this file:
+
+1. `Service.qml` is the singleton owner of scheduling, process state, cached summaries, and errors.
+2. `BarWidget.qml` and its nested `Panel.qml` render state from the singleton service. They do not authenticate, query Garmin, or aggregate activities.
+3. The Python backend is a short-lived command. There is no persistent Python daemon or systemd service.
+4. Python owns authentication, Garmin requests, validation, SQLite, aggregation, and JSON generation.
+5. QML reads a bounded summary contract. It never reads tokens, raw Garmin responses, or SQLite.
+6. Store canonical measurements in SI units. Convert units only at presentation boundaries.
+7. The first release uses activity summary responses and does not download FIT files.
+
+The intended manifest kinds are `service` and `bar-widget`. The bar widget owns its nested details panel. Forward the panel lifecycle expected by Omarchy, including `opened`, `open()`, `close()`, `toggle()`, and `closeForPopoutSwitch()`.
+
+## Authentication and private storage
+
+- Run first-time login in a visible terminal.
+- Read the password with `getpass`; never echo it or put it in argv, environment variables, files, QML properties, or logs.
+- Complete MFA in the same Python process as credential login.
+- Persist only the token material written by `python-garminconnect`.
+- Use a dedicated token store. Do not inspect or reuse `~/.garminconnect` automatically.
+- Use owner-only XDG directories and files. Directories must be mode `0700`; private files must be mode `0600`.
+- Keep runtime locks under `$XDG_RUNTIME_DIR`, never predictable shared `/tmp` paths.
+- Treat a token file as configured but unverified until a Garmin request succeeds.
+- Never merge data from two Garmin accounts. Detect an account change and require an explicit reset or separate data scope.
+- Logout and purge are separate, explicit operations. Plugin removal must not silently delete user data.
+
+Planned storage:
+
+```text
+$XDG_STATE_HOME/omarchy-garmin-activities/auth/garmin_tokens.json
+$XDG_DATA_HOME/omarchy-garmin-activities/activities.sqlite3
+$XDG_CACHE_HOME/omarchy-garmin-activities/summary.json
+$XDG_RUNTIME_DIR/omarchy-garmin-activities/sync.lock
+```
+
+Apply the usual XDG defaults when an environment variable is unset.
+
+## Garmin data handling
+
+Use `get_activities_by_date` without an activity filter so unfamiliar and mixed activity types remain visible. Normalise only explicitly allowed fields. Never persist complete responses.
+
+Do not store:
+
+- latitude, longitude, route points, map data, or location endpoints;
+- email addresses or full profile responses;
+- raw request or response bodies; or
+- fields that have not been reviewed and documented.
+
+Missing values remain `None` or JSON `null`. Do not turn missing values into zero. Preserve Garmin's original activity type key and apply a display grouping separately so new types degrade safely.
+
+Use calendar periods based on the activity's local start date. Today includes today; 7, 30, and 90 days include today and the preceding 6, 29, or 89 local dates.
+
+## Python practice reference
+
+Use the three skills from [`ludo-technologies/python-best-practices`](https://github.com/ludo-technologies/python-best-practices) as supplementary guidance when writing Python, configuring tooling, or adding tests:
+
+- `coding-standards`
+- `tooling`
+- `testing`
+
+The initially reviewed skill revision is `5202c854f211dff8f5255fa78691c193c8b26a4b`. Load the relevant skill and its linked rule before changing that area. This file remains authoritative when generic advice conflicts with the project's security, privacy, dependency, or Omarchy requirements.
+
+## Python standards
+
+- Support Python 3.12 or newer, subject to the pinned Garmin dependency.
+- Use a standard `src/` package layout and a small CLI entry point.
+- Add type hints to application code. Keep the type checker strict and narrow exceptions at untyped dependency boundaries.
+- Prefer small modules with explicit responsibilities. Keep network, filesystem, clock, authentication, database, and presentation-contract boundaries injectable for tests.
+- Use dataclasses, enums, protocols, and typed mappings where they clarify a contract. Avoid unstructured dictionaries beyond the remote-response boundary.
+- Validate remote types, ranges, string lengths, list sizes, dates, identifiers, and numeric finiteness before persistence. Prefer explicit Pydantic boundary models when they make this contract safer and clearer; convert validated input into domain types before storage and aggregation.
+- Use parameterised SQL and explicit schema migrations. Database updates and reconciliation must be transactional.
+- Write private files atomically and preserve restrictive permissions.
+- Use domain exceptions internally. Map them to stable CLI exit codes and bounded, non-sensitive JSON errors at the process boundary.
+- Do not use broad `except Exception` blocks except at a top-level boundary that logs a safe classification and exits predictably.
+- Do not use `shell=True`, dynamic evaluation, or command strings for ordinary subprocesses.
+- Keep stdout machine-readable for commands used by QML. Send concise diagnostics to stderr and never include secrets or raw responses.
+- Bound network retries. Authentication errors and HTTP 429 responses must fail without aggressive retry loops.
+- Make refresh, upsert, reconciliation, logout, and purge behaviour idempotent.
+
+## Python tooling and dependencies
+
+Use `uv` with committed `pyproject.toml` and `uv.lock` files. Production dependencies must be exact and reproducible through the lockfile.
+
+Before adding or updating a dependency:
+
+1. Confirm that it is necessary and maintained.
+2. Review its source, release status, licence, and security implications.
+3. Prefer a published package over a Git dependency.
+4. Update the lockfile in the same change.
+5. Record direct dependency attribution in `THIRD_PARTY_NOTICES.md` when applicable.
+6. Run the full test, lint, type-check, and security-check suite.
+
+Do not use `curl | sh`, unpinned Git execution, install hooks, vendored executable binaries, passwordless sudo rules, or background privilege escalation. The plugin must not require root privileges at runtime.
+
+Use Ruff for formatting and linting, mypy in strict mode for static typing, pytest for tests, and pyscn for structural analysis. Structure tests around observable behaviour, mock external boundaries with faithful interfaces, keep fixtures narrowly scoped, and use readable parameter IDs. Add coverage thresholds once the first executable modules exist. Security-sensitive modules require tests for failure paths, permissions, malformed input, symlinks, traversal, concurrency, redaction, and interrupted writes.
+
+## QML and Omarchy standards
+
+- Follow the installed Omarchy shell contract and built-in plugins as references. Do not depend on undocumented implementation details when a public component or method exists.
+- Keep business logic and aggregation out of QML.
+- Use one service instance to prevent duplicate Garmin requests on multi-monitor setups.
+- Run background processes with direct argument arrays and fixed executable paths.
+- Apply process deadlines and bounded output collection. Prevent overlapping refreshes.
+- Keep authentication in a terminal. Never build password or MFA controls inside the long-lived shell.
+- Use Omarchy's `qs.Commons` and `qs.Ui` components, theme colours, spacing, typography, panel coordination, keyboard handling, and accessibility patterns.
+- Support horizontal and vertical bars unless a documented limitation is approved.
+- Treat all remote strings as display text. Never turn activity names or errors into commands, markup, paths, or URLs without strict validation.
+- Keep panel switching, Escape handling, focus, hover, and keyboard navigation consistent with built-in panels.
+- Test more than one monitor or emulate multiple widget instances before release.
+
+Validate plugin changes with:
+
+```bash
+omarchy plugin validate "$PLUGIN_DIR"
+qmllint -I "$OMARCHY_PATH/shell" \
+  "$PLUGIN_DIR/BarWidget.qml" \
+  "$PLUGIN_DIR/Panel.qml" \
+  "$PLUGIN_DIR/Service.qml"
+```
+
+Also test shell summon and hide, click behaviour, disable and enable, shell restart, dependency absence, authentication expiry, offline startup, rate limiting, and removal.
+
+## Documentation
+
+- `README.md` is public-facing and describes only current or clearly labelled planned behaviour.
+- `AGENTS.md` contains durable engineering and repository rules.
+- `SECURITY.md` contains safe reporting instructions and security boundaries.
+- `THIRD_PARTY_NOTICES.md` records redistributed or directly used third-party work as dependencies are added.
+- `PLAN.md` is a local working plan and is intentionally ignored. Move settled public decisions into README or AGENTS instead of relying on the private plan.
+- Public examples must be synthetic and must not resemble a real user's home, workplace, routine, or health history.
+
+Document every executable command, network destination, external dependency, storage location, permission boundary, and cleanup step before release.
+
+## Change workflow
+
+1. Run `git status --short --branch` before editing.
+2. Read the relevant source, tests, and nearby patterns.
+3. Make the smallest coherent change.
+4. Add or update tests with behaviour changes.
+5. Run focused checks during development, then the full suite before commit.
+6. Run `git diff --check` and review the complete diff.
+7. Confirm that no secret, private data, generated environment, local database, or ignored personal file is staged.
+8. Use a concise imperative commit subject.
+9. Do not push, publish a release, submit to a marketplace, or change repository visibility without the owner's explicit approval.
+
+Do not rewrite unrelated code, weaken a test to make it pass, suppress a security finding without fixing its cause, or claim a check passed when it was not run.
+
+## Definition of done
+
+A change is complete when:
+
+- behaviour and failure modes are covered by tests;
+- formatting, linting, typing, tests, and applicable security checks pass;
+- Omarchy validation and QML linting pass for plugin changes;
+- private data and credentials cannot enter tracked files or process output;
+- README, AGENTS, security documentation, and third-party notices remain accurate;
+- installation, upgrade, offline, authentication-expiry, and removal behaviour remain safe; and
+- the final diff contains only intentional changes.
