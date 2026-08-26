@@ -87,7 +87,7 @@ GitHub Actions runs the same formatting, linting, typing, testing, coverage, and
 
 ## Project status
 
-The repository now has a typed Python package, a versioned JSON command contract, XDG path resolution, tests, locked development tooling, and CI. The next backend work is private directory creation and atomic file handling, followed by the mocked Garmin authentication boundary. Installation instructions will be added only when setup can complete and the plugin can display cached activity summaries safely.
+The repository now has a typed Python package, a versioned JSON command contract, XDG path resolution, owner-only directory and atomic file primitives, tests, locked development tooling, and CI. The next backend work is the mocked Garmin authentication boundary. Installation instructions will be added only when setup can complete and the plugin can display cached activity summaries safely.
 
 ## Disclaimer
 
