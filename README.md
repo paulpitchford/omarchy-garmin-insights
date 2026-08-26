@@ -2,9 +2,6 @@
 
 Garmin Activities is an Omarchy Quattro bar plugin that shows recent Garmin Connect activity totals. It covers today and the last 7, 30, and 90 calendar days, with separate rows for each Garmin activity type.
 
-> [!IMPORTANT]
-> This project is still preparing its first release. The plugin is installable for testing, but the public clean-install and release checklist is not yet complete.
-
 ![Garmin Activities panel showing fabricated demo data](preview.png)
 
 The plugin ID is `io.github.paulpitchford.garmin-activities`.

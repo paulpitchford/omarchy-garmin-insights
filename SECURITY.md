@@ -44,4 +44,9 @@ The backend validates a maximum of 20,000 activities per refresh. It keeps only 
 
 ## Supported versions
 
-The project has no released versions yet. Security fixes are made on the default branch during release preparation. A versioned support policy will be published with the first release.
+| Version | Supported |
+|---|---|
+| 0.1.x | Yes |
+| Earlier versions | No |
+
+Security fixes are released from the default branch. Update through Omarchy's reviewed plugin update flow before reporting a problem that has already been fixed.
