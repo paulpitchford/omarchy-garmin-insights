@@ -42,6 +42,8 @@ Tokens are stored at `$XDG_STATE_HOME/omarchy-garmin-insights/auth/garmin_tokens
 
 The backend validates a maximum of 20,000 activities per refresh. It keeps only reviewed summary fields and drops every other response field before persistence. The SQLite database contains no coordinates, routes, maps, raw responses, account IDs, or email addresses. Reconciliation and deletion happen in one transaction, and full reconciliations retain only the rolling 90-day window.
 
+Activity drill-down reads SQLite locally in fixed pages of at most 20 and returns a separate bounded detail contract. These commands do not authenticate, refresh, or contact Garmin. They expose only allowlisted fields, never complete URLs or location data. The browser action accepts a validated decimal activity ID and constructs the fixed Garmin Connect HTTPS destination in QML.
+
 ## Supported versions
 
 | Version | Supported |

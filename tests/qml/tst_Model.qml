@@ -71,6 +71,124 @@ TestCase {
     compare(Model.typeLabel("<b>synthetic_type</b>"), "<b>synthetic type</b>")
   }
 
+  function syntheticPageEnvelope() {
+    var page = Model.syntheticActivityPage("7Days", "2026-08-26", null, 0)
+    return {
+      schemaVersion: 1,
+      command: "activities.list",
+      ok: true,
+      data: page,
+      error: null
+    }
+  }
+
+  function syntheticDetailEnvelope(activity) {
+    return {
+      schemaVersion: 1,
+      command: "activities.detail",
+      ok: true,
+      data: { found: true, activity: activity },
+      error: null
+    }
+  }
+
+  function test_activity_page_parser_accepts_bounded_newest_first_contract() {
+    var expected = { periodKey: "7Days", asOfDate: "2026-08-26", typeKey: null, offset: 0 }
+    var result = Model.parseActivityPageEnvelope(JSON.stringify(syntheticPageEnvelope()), expected)
+
+    verify(result.ok)
+    compare(result.page.activities.length, 4)
+    compare(result.page.activities[0].typeKey, "strength_training")
+    compare(result.page.hasMore, false)
+  }
+
+  function test_activity_page_parser_rejects_unknown_fields_and_wrong_request() {
+    var envelope = syntheticPageEnvelope()
+    envelope.data.activities[0].completeUrl = "https://hostile.example/activity/1"
+    var expected = { periodKey: "7Days", asOfDate: "2026-08-26", typeKey: null, offset: 0 }
+    verify(!Model.parseActivityPageEnvelope(JSON.stringify(envelope), expected).ok)
+
+    envelope = syntheticPageEnvelope()
+    expected.offset = 20
+    verify(!Model.parseActivityPageEnvelope(JSON.stringify(envelope), expected).ok)
+  }
+
+  function test_activity_page_parser_rejects_oversized_input() {
+    var expected = { periodKey: "7Days", asOfDate: "2026-08-26", typeKey: null, offset: 0 }
+    verify(!Model.parseActivityPageEnvelope("x".repeat(65537), expected).ok)
+  }
+
+  function test_activity_page_parser_enforces_period_and_type_filter() {
+    var envelope = syntheticPageEnvelope()
+    envelope.data.typeKey = "running"
+    var expected = { periodKey: "7Days", asOfDate: "2026-08-26", typeKey: "running", offset: 0 }
+    verify(!Model.parseActivityPageEnvelope(JSON.stringify(envelope), expected).ok)
+
+    envelope = syntheticPageEnvelope()
+    envelope.data.activities[0].localDate = "2026-08-01"
+    envelope.data.activities[0].startedAtLocal = "2026-08-01 18:15:00"
+    expected.typeKey = null
+    verify(!Model.parseActivityPageEnvelope(JSON.stringify(envelope), expected).ok)
+  }
+
+  function test_activity_page_parser_rejects_malformed_identifier_and_order() {
+    var envelope = syntheticPageEnvelope()
+    envelope.data.activities[0].activityId = "1;open-browser"
+    var expected = { periodKey: "7Days", asOfDate: "2026-08-26", typeKey: null, offset: 0 }
+    verify(!Model.parseActivityPageEnvelope(JSON.stringify(envelope), expected).ok)
+
+    envelope = syntheticPageEnvelope()
+    var first = envelope.data.activities[0]
+    envelope.data.activities[0] = envelope.data.activities[1]
+    envelope.data.activities[1] = first
+    verify(!Model.parseActivityPageEnvelope(JSON.stringify(envelope), expected).ok)
+  }
+
+  function test_activity_detail_parser_preserves_hostile_name_as_display_text() {
+    var activity = Model.syntheticActivityDetail("900000000001", "2026-08-26")
+    activity.name = "<b>Fabricated & plain</b>"
+    var result = Model.parseActivityDetailEnvelope(
+      JSON.stringify(syntheticDetailEnvelope(activity)), activity.activityId)
+
+    verify(result.ok)
+    compare(result.activity.name, "<b>Fabricated & plain</b>")
+    compare(result.activity.movingDurationSeconds, 2070)
+  }
+
+  function test_activity_detail_parser_accepts_not_found_and_rejects_wrong_id() {
+    var missing = {
+      schemaVersion: 1,
+      command: "activities.detail",
+      ok: true,
+      data: { found: false, activity: null },
+      error: null
+    }
+    var result = Model.parseActivityDetailEnvelope(JSON.stringify(missing), "101")
+    verify(result.ok)
+    verify(!result.found)
+
+    var activity = Model.syntheticActivityDetail("900000000001", "2026-08-26")
+    verify(!Model.parseActivityDetailEnvelope(
+      JSON.stringify(syntheticDetailEnvelope(activity)), "900000000002").ok)
+  }
+
+  function test_garmin_connect_url_uses_only_fixed_origin_and_decimal_id() {
+    compare(Model.garminConnectUrl("900000000001"),
+      "https://connect.garmin.com/app/activity/900000000001")
+    compare(Model.garminConnectUrl("1/../../hostile.example"), "")
+    compare(Model.garminConnectUrl("9223372036854775808"), "")
+  }
+
+  function test_synthetic_activity_counts_match_summary_periods() {
+    compare(Model.syntheticActivityPage("today", "2026-08-26", null, 0).activities.length, 1)
+    compare(Model.syntheticActivityPage("7Days", "2026-08-26", null, 0).activities.length, 4)
+    compare(Model.syntheticActivityPage("30Days", "2026-08-26", null, 0).activities.length, 13)
+    var quarter = Model.syntheticActivityPage("90Days", "2026-08-26", null, 0)
+    compare(quarter.activities.length, 20)
+    verify(quarter.hasMore)
+    compare(quarter.nextOffset, 20)
+  }
+
   function stateOptions(overrides) {
     var options = {
       demoMode: false,

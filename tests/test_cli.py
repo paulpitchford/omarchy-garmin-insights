@@ -1,12 +1,19 @@
 import json
 from collections.abc import Iterator, Mapping
-from datetime import date
+from datetime import date, datetime
 from io import StringIO
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import omarchy_garmin.cli as cli_module
+from omarchy_garmin.activities import Activity
+from omarchy_garmin.activity_views import (
+    ActivityDetail,
+    ActivityPage,
+    ActivityViewStorageError,
+)
 from omarchy_garmin.auth import (
     AccountMismatchError,
     AuthenticationRejectedError,
@@ -81,6 +88,49 @@ class _FakeRefreshOperations:
             fetched_count=3,
             deleted_count=1,
         )
+
+
+class _FakeActivityViewOperations:
+    def __init__(
+        self,
+        *,
+        activity: Activity | None = None,
+        failure: Exception | None = None,
+    ) -> None:
+        self.activity = activity
+        self.failure = failure
+        self.list_calls: list[tuple[str, date, str | None, int]] = []
+        self.detail_calls: list[str] = []
+
+    def list_activities(
+        self,
+        *,
+        period_key: str,
+        as_of_date: date,
+        type_key: str | None,
+        offset: int,
+    ) -> ActivityPage:
+        self.list_calls.append((period_key, as_of_date, type_key, offset))
+        if self.failure is not None:
+            raise self.failure
+        activities = () if self.activity is None else (self.activity,)
+        return ActivityPage(
+            period_key=period_key,
+            start_date=date(2026, 8, 20),
+            end_date=as_of_date,
+            type_key=type_key,
+            offset=offset,
+            activities=activities,
+            has_more=False,
+            next_offset=None,
+            stale=False,
+        )
+
+    def activity_detail(self, activity_id: str) -> ActivityDetail:
+        self.detail_calls.append(activity_id)
+        if self.failure is not None:
+            raise self.failure
+        return ActivityDetail(self.activity)
 
 
 class _FailingEnvironment(Mapping[str, str]):
@@ -498,6 +548,193 @@ def test_auth_failures_map_to_redacted_error_contract(
     assert exit_status == expected_status
     assert payload["error"]["code"] == expected_code
     assert "private" not in stdout.getvalue()
+
+
+def test_activity_list_json_has_bounded_local_contract() -> None:
+    activity = Activity(
+        activity_id="101",
+        name="Fabricated ride <not markup>",
+        type_key="synthetic_cycling",
+        started_at_local="2026-08-25 18:30:00",
+        local_date=date(2026, 8, 25),
+        duration_seconds=3600,
+        moving_duration_seconds=3500,
+        distance_metres=25_000,
+        elevation_gain_metres=300,
+        energy_joules=2_000_000,
+        average_heart_rate_bpm=140,
+        maximum_heart_rate_bpm=175,
+        average_speed_metres_per_second=7.1,
+        average_power_watts=190,
+        total_sets=None,
+        total_repetitions=None,
+    )
+    views = _FakeActivityViewOperations(activity=activity)
+    stdout = StringIO()
+
+    exit_status = run(
+        [
+            "activities",
+            "list",
+            "--json",
+            "--period",
+            "7Days",
+            "--as-of",
+            "2026-08-26",
+            "--type-key",
+            "synthetic_cycling",
+        ],
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={},
+        home=Path("/home/example"),
+        activity_view_operations=views,
+    )
+
+    payload: dict[str, Any] = json.loads(stdout.getvalue())
+    assert exit_status == ExitStatus.SUCCESS
+    assert views.list_calls == [("7Days", date(2026, 8, 26), "synthetic_cycling", 0)]
+    assert payload["command"] == "activities.list"
+    assert payload["data"]["pageSize"] == 20
+    assert payload["data"]["activities"][0]["activityId"] == "101"
+    assert "https://" not in stdout.getvalue()
+
+
+def test_activity_detail_not_found_is_a_stable_success_result() -> None:
+    views = _FakeActivityViewOperations()
+    stdout = StringIO()
+
+    exit_status = run(
+        ["activities", "detail", "--json", "--activity-id", "999"],
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={},
+        home=Path("/home/example"),
+        activity_view_operations=views,
+    )
+
+    assert exit_status == ExitStatus.SUCCESS
+    assert views.detail_calls == ["999"]
+    assert json.loads(stdout.getvalue())["data"] == {"found": False, "activity": None}
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        pytest.param(
+            ["activities", "list", "--json", "--period", "year", "--as-of", "2026-08-26"],
+            id="period",
+        ),
+        pytest.param(
+            ["activities", "list", "--json", "--period", "7Days", "--as-of", "invalid"],
+            id="date",
+        ),
+        pytest.param(
+            [
+                "activities",
+                "list",
+                "--json",
+                "--period",
+                "7Days",
+                "--as-of",
+                "2026-08-26",
+                "--offset",
+                "1",
+            ],
+            id="offset",
+        ),
+        pytest.param(
+            ["activities", "detail", "--json", "--activity-id", "1 OR 1=1"],
+            id="activity-id",
+        ),
+    ],
+)
+def test_invalid_activity_view_arguments_are_redacted(arguments: list[str]) -> None:
+    stdout = StringIO()
+
+    exit_status = run(
+        arguments,
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={},
+        home=Path("/home/example"),
+        activity_view_operations=_FakeActivityViewOperations(),
+    )
+
+    payload: dict[str, Any] = json.loads(stdout.getvalue())
+    assert exit_status == ExitStatus.INVALID_ARGUMENTS
+    assert payload["error"]["code"] == "invalid_arguments"
+    assert "1 OR 1=1" not in stdout.getvalue()
+
+
+def test_oversized_activity_view_output_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stdout = StringIO()
+    monkeypatch.setattr(cli_module, "MAX_ACTIVITY_VIEW_BYTES", 1)
+
+    exit_status = run(
+        [
+            "activities",
+            "list",
+            "--json",
+            "--period",
+            "7Days",
+            "--as-of",
+            "2026-08-26",
+        ],
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={},
+        home=Path("/home/example"),
+        activity_view_operations=_FakeActivityViewOperations(),
+    )
+
+    assert exit_status == ExitStatus.STORAGE_ERROR
+    assert json.loads(stdout.getvalue())["error"]["code"] == "local_storage_error"
+
+
+def test_activity_view_storage_failure_uses_redacted_local_error() -> None:
+    stdout = StringIO()
+
+    exit_status = run(
+        ["activities", "detail", "--json", "--activity-id", "101"],
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={},
+        home=Path("/home/example"),
+        activity_view_operations=_FakeActivityViewOperations(
+            failure=ActivityViewStorageError("private database path")
+        ),
+    )
+
+    assert exit_status == ExitStatus.STORAGE_ERROR
+    assert json.loads(stdout.getvalue())["error"]["code"] == "local_storage_error"
+    assert "private database path" not in stdout.getvalue()
+
+
+def test_activity_list_default_composition_is_local_and_non_mutating(tmp_path: Path) -> None:
+    stdout = StringIO()
+
+    exit_status = run(
+        [
+            "activities",
+            "list",
+            "--json",
+            "--period",
+            "today",
+            "--as-of",
+            datetime.now().astimezone().date().isoformat(),
+        ],
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={},
+        home=tmp_path,
+    )
+
+    assert exit_status == ExitStatus.SUCCESS
+    assert json.loads(stdout.getvalue())["data"]["activities"] == []
+    assert (tmp_path / ".local").exists() is False
 
 
 def test_refresh_json_has_bounded_contract_and_forwards_full_option() -> None:

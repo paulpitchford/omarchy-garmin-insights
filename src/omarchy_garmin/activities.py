@@ -65,7 +65,12 @@ def _activity_id(value: object) -> str:
 def _optional_string(value: object, field: str, *, max_length: int) -> str | None:
     if value is None:
         return None
-    if not isinstance(value, str) or not value or len(value) > max_length:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > max_length
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
         raise InvalidActivityDataError(f"{field} is invalid")
     return value
 
@@ -190,6 +195,97 @@ def _normalize_activity(raw: object, start_date: date, end_date: date) -> Activi
         total_sets=_optional_count(activity.get("totalSets"), "totalSets"),
         total_repetitions=_optional_count(activity.get("totalReps"), "totalReps"),
     )
+
+
+def validate_normalized_activity(activity: Activity) -> Activity:
+    """Validate every field in an activity loaded from local storage.
+
+    Args:
+        activity: Activity reconstructed from the private SQLite database.
+
+    Returns:
+        The unchanged validated activity.
+
+    Raises:
+        InvalidActivityDataError: If any stored field is malformed or outside the
+            reviewed Garmin activity bounds.
+    """
+    if not isinstance(activity.activity_id, str) or not activity.activity_id.isascii():
+        raise InvalidActivityDataError("stored activityId is invalid")
+    try:
+        numeric_id = int(activity.activity_id)
+    except ValueError as error:
+        raise InvalidActivityDataError("stored activityId is invalid") from error
+    if _activity_id(numeric_id) != activity.activity_id:
+        raise InvalidActivityDataError("stored activityId is invalid")
+
+    _optional_string(activity.name, "stored activityName", max_length=_MAX_NAME_LENGTH)
+    _required_string(
+        activity.type_key, "stored activityType.typeKey", max_length=_MAX_TYPE_KEY_LENGTH
+    )
+    normalized_start, normalized_date = _local_start(activity.started_at_local)
+    if normalized_start != activity.started_at_local or normalized_date != activity.local_date:
+        raise InvalidActivityDataError("stored local start is invalid")
+    if not isinstance(activity.local_date, date) or isinstance(activity.local_date, datetime):
+        raise InvalidActivityDataError("stored local date is invalid")
+
+    _optional_number(
+        activity.duration_seconds,
+        "stored duration",
+        minimum=0,
+        maximum=_MAX_DURATION_SECONDS,
+    )
+    _optional_number(
+        activity.moving_duration_seconds,
+        "stored movingDuration",
+        minimum=0,
+        maximum=_MAX_DURATION_SECONDS,
+    )
+    _optional_number(
+        activity.distance_metres,
+        "stored distance",
+        minimum=0,
+        maximum=_MAX_DISTANCE_METRES,
+    )
+    _optional_number(
+        activity.elevation_gain_metres,
+        "stored elevationGain",
+        minimum=0,
+        maximum=_MAX_ELEVATION_METRES,
+    )
+    _optional_number(
+        activity.energy_joules,
+        "stored energy",
+        minimum=0,
+        maximum=_MAX_ENERGY_KILOCALORIES * _KILOCALORIE_TO_JOULES,
+    )
+    _optional_number(
+        activity.average_heart_rate_bpm,
+        "stored averageHR",
+        minimum=0,
+        maximum=_MAX_HEART_RATE_BPM,
+    )
+    _optional_number(
+        activity.maximum_heart_rate_bpm,
+        "stored maxHR",
+        minimum=0,
+        maximum=_MAX_HEART_RATE_BPM,
+    )
+    _optional_number(
+        activity.average_speed_metres_per_second,
+        "stored averageSpeed",
+        minimum=0,
+        maximum=_MAX_SPEED_METRES_PER_SECOND,
+    )
+    _optional_number(
+        activity.average_power_watts,
+        "stored avgPower",
+        minimum=0,
+        maximum=_MAX_POWER_WATTS,
+    )
+    _optional_count(activity.total_sets, "stored totalSets")
+    _optional_count(activity.total_repetitions, "stored totalReps")
+    return activity
 
 
 def normalize_activities(payload: object, start_date: date, end_date: date) -> list[Activity]:

@@ -6,13 +6,15 @@ import math
 import os
 import sqlite3
 import stat
+import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from urllib.parse import quote
 
-from omarchy_garmin.activities import Activity
+from omarchy_garmin.activities import Activity, validate_normalized_activity
 from omarchy_garmin.storage import (
     PRIVATE_FILE_MODE,
     UnsafeStoragePathError,
@@ -165,6 +167,29 @@ class ActivityRepository:
             if connection is not None:
                 connection.close()
 
+    @contextmanager
+    def _read_connection(self) -> Iterator[sqlite3.Connection | None]:
+        connection: sqlite3.Connection | None = None
+        try:
+            if not private_file_exists(self._database_path):
+                yield None
+                return
+            database_uri = f"file:{quote(str(self._database_path), safe='/')}?mode=ro"
+            connection = sqlite3.connect(database_uri, timeout=0, isolation_level=None, uri=True)
+            connection.execute("PRAGMA trusted_schema = OFF")
+            connection.execute("PRAGMA query_only = ON")
+            current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if current_version != SCHEMA_VERSION:
+                raise ActivityDatabaseError("activity database schema is unavailable")
+            deadline = time.monotonic() + 2.0
+            connection.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1_000)
+            yield connection
+        except (OSError, sqlite3.Error, UnsafeStoragePathError) as error:
+            raise ActivityDatabaseError("activity database is unsafe or unavailable") from error
+        finally:
+            if connection is not None:
+                connection.close()
+
     def _prepare_database_file(self) -> None:
         ensure_private_directory(self._database_path.parent)
         if private_file_exists(self._database_path):
@@ -263,6 +288,102 @@ class ActivityRepository:
         except (TypeError, ValueError) as error:
             raise ActivityDatabaseError("stored activity data is invalid") from error
 
+    def activity_page(
+        self,
+        start_date: date,
+        end_date: date,
+        *,
+        type_key: str | None,
+        offset: int,
+        limit: int,
+    ) -> list[Activity]:
+        """Return one bounded page ordered by newest local start first."""
+        if start_date > end_date:
+            raise ValueError("start_date must not follow end_date")
+        if offset < 0:
+            raise ValueError("offset must not be negative")
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        if type_key is not None and (not type_key or len(type_key) > 100):
+            raise ValueError("type_key is invalid")
+        with self._read_connection() as connection:
+            if connection is None:
+                return []
+            rows = connection.execute(
+                """
+                SELECT
+                    activity_id,
+                    name,
+                    type_key,
+                    started_at_local,
+                    local_date,
+                    duration_seconds,
+                    moving_duration_seconds,
+                    distance_metres,
+                    elevation_gain_metres,
+                    energy_joules,
+                    average_heart_rate_bpm,
+                    maximum_heart_rate_bpm,
+                    average_speed_metres_per_second,
+                    average_power_watts,
+                    total_sets,
+                    total_repetitions
+                FROM activities
+                WHERE local_date BETWEEN ? AND ?
+                  AND (? IS NULL OR type_key = ?)
+                ORDER BY started_at_local DESC, length(activity_id) DESC, activity_id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (
+                    start_date.isoformat(),
+                    end_date.isoformat(),
+                    type_key,
+                    type_key,
+                    limit,
+                    offset,
+                ),
+            ).fetchall()
+        try:
+            return [self._activity_from_row(row) for row in rows]
+        except (TypeError, ValueError) as error:
+            raise ActivityDatabaseError("stored activity data is invalid") from error
+
+    def activity_by_id(self, activity_id: str) -> Activity | None:
+        """Return one normalized activity by its validated decimal identifier."""
+        with self._read_connection() as connection:
+            if connection is None:
+                return None
+            row = connection.execute(
+                """
+                SELECT
+                    activity_id,
+                    name,
+                    type_key,
+                    started_at_local,
+                    local_date,
+                    duration_seconds,
+                    moving_duration_seconds,
+                    distance_metres,
+                    elevation_gain_metres,
+                    energy_joules,
+                    average_heart_rate_bpm,
+                    maximum_heart_rate_bpm,
+                    average_speed_metres_per_second,
+                    average_power_watts,
+                    total_sets,
+                    total_repetitions
+                FROM activities
+                WHERE activity_id = ?
+                """,
+                (activity_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            return self._activity_from_row(row)
+        except (TypeError, ValueError) as error:
+            raise ActivityDatabaseError("stored activity data is invalid") from error
+
     def reconcile(
         self,
         activities: Sequence[Activity],
@@ -331,23 +452,25 @@ class ActivityRepository:
         if len(row) != 16:
             raise ValueError("stored activity row has an unexpected shape")
         local_date_text = _required_text(row[4])
-        return Activity(
-            activity_id=_required_text(row[0]),
-            name=_optional_text(row[1]),
-            type_key=_required_text(row[2]),
-            started_at_local=_required_text(row[3]),
-            local_date=date.fromisoformat(local_date_text),
-            duration_seconds=_optional_real(row[5]),
-            moving_duration_seconds=_optional_real(row[6]),
-            distance_metres=_optional_real(row[7]),
-            elevation_gain_metres=_optional_real(row[8]),
-            energy_joules=_optional_real(row[9]),
-            average_heart_rate_bpm=_optional_real(row[10]),
-            maximum_heart_rate_bpm=_optional_real(row[11]),
-            average_speed_metres_per_second=_optional_real(row[12]),
-            average_power_watts=_optional_real(row[13]),
-            total_sets=_optional_integer(row[14]),
-            total_repetitions=_optional_integer(row[15]),
+        return validate_normalized_activity(
+            Activity(
+                activity_id=_required_text(row[0]),
+                name=_optional_text(row[1]),
+                type_key=_required_text(row[2]),
+                started_at_local=_required_text(row[3]),
+                local_date=date.fromisoformat(local_date_text),
+                duration_seconds=_optional_real(row[5]),
+                moving_duration_seconds=_optional_real(row[6]),
+                distance_metres=_optional_real(row[7]),
+                elevation_gain_metres=_optional_real(row[8]),
+                energy_joules=_optional_real(row[9]),
+                average_heart_rate_bpm=_optional_real(row[10]),
+                maximum_heart_rate_bpm=_optional_real(row[11]),
+                average_speed_metres_per_second=_optional_real(row[12]),
+                average_power_watts=_optional_real(row[13]),
+                total_sets=_optional_integer(row[14]),
+                total_repetitions=_optional_integer(row[15]),
+            )
         )
 
     @staticmethod

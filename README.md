@@ -9,6 +9,8 @@ The plugin ID is `io.github.paulpitchford.garmin-insights`.
 ## What it does
 
 - Shows activity count, duration, distance, and energy for the selected period.
+- Opens a bounded local activity list for a period or original Garmin activity type.
+- Shows the stored allowlisted details for one activity and can explicitly open it on Garmin Connect.
 - Breaks totals down by Garmin's original activity type, including types the plugin does not already know.
 - Supports metric, imperial, or locale-selected units.
 - Keeps a rolling 90-day local database and a smaller summary cache for the interface.
@@ -23,17 +25,12 @@ The plugin only reads activity summaries. It does not upload, edit, schedule, or
 
 ### Required before 0.1
 
-Two feature phases remain before the first release: activity drill-down and update awareness. They are planned but are not available in the current build.
+Update awareness remains planned and is not available in the current build.
 
-- Open a bounded activity list from the selected period or an activity-type row.
-- Select an activity to see the allowlisted details already stored in the local database.
-- Use an explicit action to open that activity on Garmin Connect in the default browser.
-- Keep list and detail reads local. Drill-down will not make another Garmin API request or download routes, maps, or FIT files.
-- Fix and retest private cache-directory creation before the first dependency command.
-- Test an update from the current aggregate-only build to the drill-down build while retaining plugin settings, tokens, account scope, and normalized activities.
+- Test an update from the earlier aggregate-only build while retaining plugin settings, tokens, account scope, and normalized activities.
 - Add a bounded top-level **Update available** indicator for supported Git-managed installs. It will check the fixed public repository at most once per 24 hours and offer a visible review action, but it will never update the checkout by itself.
 
-The external link will be built from a fixed Garmin Connect HTTPS address and a validated numeric activity ID. Garmin data will not be allowed to provide a URL, host, scheme, path, or command. The browser uses its own Garmin session; plugin OAuth tokens will not be passed to it.
+Activity drill-down is local-only. It does not make another Garmin API request or download routes, maps, or FIT files. The external action uses the fixed `https://connect.garmin.com/app/activity/<activity-id>` pattern after validating the decimal identifier. Garmin data cannot provide a URL, host, scheme, path, or command. The browser uses its own Garmin session; plugin OAuth tokens are not passed to it.
 
 ### After 0.1
 
@@ -42,6 +39,7 @@ Later design work may add optional daily health cards and bar metrics for Body B
 ## Requirements
 
 - Omarchy with the Quattro shell plugin commands (`omarchy plugin` and `omarchy bar`).
+- `/usr/bin/python3`, supplied by Omarchy and used only for the stdlib-only cache permission preflight.
 - [`uv`](https://github.com/astral-sh/uv) at one of these paths:
   - `/usr/bin/uv`
   - `~/.local/bin/uv`
@@ -96,9 +94,12 @@ omarchy bar set io.github.paulpitchford.garmin-insights demoMode false --json
 - Left-click the bar item to open or close the panel.
 - Middle-click to refresh.
 - Right-click to run the action needed for the current state: setup, login, retry, or refresh.
-- In the panel, use Left and Right to change period, Enter for the main action, `R` to refresh, Tab to switch panels, and Escape to close.
+- In the summary, use the arrow keys to choose a period or activity row and Enter to open its local activity list.
+- In a list, use Up and Down to select an activity, Right or Enter to open details, and Left or Escape to go back.
+- In a detail view, choose **Open in Garmin Connect** explicitly; Left or Escape returns to the list.
+- Press `R` to refresh, Tab to switch panels, and Escape from the summary to close.
 
-The horizontal bar shows the selected period's activity count. A vertical bar uses an icon-only form.
+Mouse users can select **Browse all activities**, an activity-type row, a list row, and the explicit Garmin Connect action. Lists contain at most 20 rows per page. The horizontal bar shows the selected period's activity count. A vertical bar uses an icon-only form.
 
 ### Settings
 
@@ -196,6 +197,9 @@ backend auth logout --confirm
 backend auth purge --confirm
 backend refresh --json
 backend refresh --json --full
+backend activities list --json --period 7Days --as-of 2026-08-26
+backend activities list --json --period 30Days --as-of 2026-08-26 --type-key running --offset 20
+backend activities detail --json --activity-id 900000000001
 ```
 
 Run `auth login` only in a visible interactive terminal. `auth status` checks local files and makes no Garmin request, so configured tokens remain "unverified" until login or refresh succeeds.
@@ -219,7 +223,7 @@ Defaults are `~/.local/state`, `~/.local/share`, and `~/.cache`. Private applica
 
 The account fingerprint is a one-way SHA-256 value used to prevent data from two Garmin accounts being merged. The raw account identifier, email address, and Garmin profile response are not saved.
 
-The activity allowlist contains Garmin activity ID, optional activity name, original type key, local start time and date, duration, moving duration, distance, elevation gain, energy, average and maximum heart rate, average speed, average power, total sets, and total repetitions. Activity names, identifiers, and start times are excluded from the QML summary. Coordinates, routes, maps, raw responses, and complete profile data are not persisted.
+The activity allowlist contains Garmin activity ID, optional activity name, original type key, local start time and date, duration, moving duration, distance, elevation gain, energy, average and maximum heart rate, average speed, average power, total sets, and total repetitions. Activity names, identifiers, and start times are excluded from summary schema version 1. Separate bounded list and detail responses expose only the fields needed for an explicit local drill-down. Coordinates, routes, maps, raw responses, complete URLs, and complete profile data are not persisted or returned by those contracts.
 
 See [SECURITY.md](SECURITY.md) for reporting instructions and the complete security boundary.
 
@@ -295,7 +299,7 @@ Garmin authentication can contact:
 - `diauth.garmin.com`
 - `mobile.integration.garmin.com`
 
-Activity refreshes use the read-only `/activitylist-service/activities/search/activities` endpoint on `connectapi.garmin.com` through `get_activities_by_date`, without an activity-type filter.
+Activity refreshes use the read-only `/activitylist-service/activities/search/activities` endpoint on `connectapi.garmin.com` through `get_activities_by_date`, without an activity-type filter. List and detail reads use SQLite only and make no network request. The explicit detail action opens `https://connect.garmin.com/app/activity/<validated-decimal-id>` in the default browser.
 
 `python-garminconnect` is an unofficial client. Garmin may change or rate-limit the web services it uses.
 
@@ -304,8 +308,9 @@ Activity refreshes use the read-only `/activitylist-service/activities/search/ac
 The QML service uses fixed executable paths and direct argument arrays:
 
 - `/usr/bin/test -x` checks the three accepted `uv` locations.
+- `/usr/bin/python3` runs the tracked stdlib-only cache bootstrap before uv, rejecting unsafe paths and securing `$XDG_CACHE_HOME/omarchy-garmin-insights` as mode `0700`.
 - `/usr/bin/env` sets only `UV_PROJECT_ENVIRONMENT` for each backend process.
-- The selected `uv` runs `run --locked --no-sync omarchy-garmin-insights auth status --json` and `run --locked --no-sync omarchy-garmin-insights refresh --json` in the background.
+- The selected `uv` runs `run --locked --no-sync omarchy-garmin-insights auth status --json`, `refresh --json`, and bounded `activities list` or `activities detail` reads in the background.
 - `/usr/share/omarchy/bin/omarchy-launch-terminal` opens visible setup and login terminals.
 - Setup runs `uv sync --locked --no-dev`.
 - Login runs `uv run --locked --no-sync omarchy-garmin-insights auth login`.
@@ -348,7 +353,7 @@ Check the reported XDG paths. The application directories and files must belong 
 
 ### Inspect safe machine output
 
-Use the JSON forms of `doctor`, `auth status`, and `refresh`. Errors contain a reviewed code and fixed message. Unknown exception text, remote response bodies, credentials, and command arguments are not reflected in output.
+Use the JSON forms of `doctor`, `auth status`, `refresh`, `activities list`, and `activities detail`. Errors contain a reviewed code and fixed message. Unknown exception text, SQL details, remote response bodies, credentials, and command arguments are not reflected in output.
 
 Process exit categories are `0` for success, `2` for invalid arguments, `10` for configuration, `20` for authentication, `30` for network or Garmin service failures, `40` for invalid data, `50` for local storage, `60` for concurrency, and `70` for unexpected internal failures.
 
@@ -359,6 +364,12 @@ Summary schema version 1 contains today, 7-day, 30-day, and 90-day periods. Toda
 Every metric has a `contributingActivityCount`. A metric is `null` when no activity supplied a usable value; missing measurements are never converted to zero. Average heart rate and average power are weighted by activity duration. Average speed is weighted by moving duration. Values without a positive matching duration do not contribute. Maximum heart rate is the highest supplied value, and the remaining measurements are sums.
 
 The cache is limited to 20,000 activities, 256 original activity type keys, and 1 MiB of JSON. Measurements remain in SI units until the QML presentation boundary.
+
+## Activity drill-down contracts
+
+`activities list` accepts one reviewed period key, the summary's local end date, an optional original type key, and a page offset. It returns newest-first local records in fixed pages of at most 20, with `hasMore` and a bounded next offset. Older summary dates are marked stale. `activities detail` accepts only a canonical decimal activity ID and returns either the complete allowlisted local record or `{\"found\":false,\"activity\":null}` if reconciliation removed it.
+
+Both commands open SQLite read-only, apply a two-second query deadline, cap JSON at 64 KiB, validate every field again before serialization, and never authenticate, refresh, or contact Garmin. QML applies the same shape, value, string, ordering, identifier, and size checks before displaying a response. Missing metrics remain absent from the detail view rather than appearing as zero.
 
 ## Development
 

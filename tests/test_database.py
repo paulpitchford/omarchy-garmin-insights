@@ -163,6 +163,77 @@ def test_activity_snapshot_is_bounded_to_requested_local_dates(tmp_path: Path) -
     ]
 
 
+def test_activity_page_is_newest_first_and_supports_original_type_filter(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "activities.sqlite3"
+    repository = ActivityRepository(database)
+    repository.reconcile(
+        [
+            _activity("9", date(2026, 8, 26), type_key="running"),
+            _activity("10", date(2026, 8, 26), type_key="running"),
+            _activity("8", date(2026, 8, 25), type_key="cycling"),
+        ],
+        start_date=date(2026, 8, 20),
+        end_date=date(2026, 8, 26),
+        completed_at=_COMPLETED_AT,
+        full=False,
+    )
+
+    first_page = repository.activity_page(
+        date(2026, 8, 20),
+        date(2026, 8, 26),
+        type_key=None,
+        offset=0,
+        limit=2,
+    )
+    filtered_page = repository.activity_page(
+        date(2026, 8, 20),
+        date(2026, 8, 26),
+        type_key="cycling",
+        offset=0,
+        limit=2,
+    )
+
+    assert [activity.activity_id for activity in first_page] == ["10", "9"]
+    assert [activity.activity_id for activity in filtered_page] == ["8"]
+
+
+def test_activity_detail_returns_one_row_or_none_after_reconciliation(tmp_path: Path) -> None:
+    database = tmp_path / "activities.sqlite3"
+    repository = ActivityRepository(database)
+    repository.reconcile(
+        [_activity("101", date(2026, 8, 25), name="Fabricated detail")],
+        start_date=date(2026, 8, 20),
+        end_date=date(2026, 8, 26),
+        completed_at=_COMPLETED_AT,
+        full=False,
+    )
+
+    found = repository.activity_by_id("101")
+
+    assert found is not None
+    assert found.name == "Fabricated detail"
+    assert repository.activity_by_id("999") is None
+
+
+def test_missing_database_read_does_not_create_local_storage(tmp_path: Path) -> None:
+    database = tmp_path / "private" / "activities.sqlite3"
+    repository = ActivityRepository(database)
+
+    activities = repository.activity_page(
+        date(2026, 8, 20),
+        date(2026, 8, 26),
+        type_key=None,
+        offset=0,
+        limit=20,
+    )
+
+    assert activities == []
+    assert repository.activity_by_id("101") is None
+    assert database.parent.exists() is False
+
+
 def test_malformed_stored_measurement_is_rejected_from_snapshot(tmp_path: Path) -> None:
     database = tmp_path / "activities.sqlite3"
     repository = ActivityRepository(database)
@@ -182,6 +253,30 @@ def test_malformed_stored_measurement_is_rejected_from_snapshot(tmp_path: Path) 
             date(2026, 8, 26),
             limit=100,
         )
+
+
+def test_busy_database_read_fails_without_waiting_or_leaking_sql_details(tmp_path: Path) -> None:
+    database = tmp_path / "activities.sqlite3"
+    repository = ActivityRepository(database)
+    repository.reconcile(
+        [_activity("101", date(2026, 8, 25))],
+        start_date=date(2026, 8, 20),
+        end_date=date(2026, 8, 26),
+        completed_at=_COMPLETED_AT,
+        full=False,
+    )
+
+    with closing(sqlite3.connect(database, isolation_level=None)) as blocker:
+        blocker.execute("BEGIN EXCLUSIVE")
+        with pytest.raises(ActivityDatabaseError, match="unsafe or unavailable"):
+            repository.activity_page(
+                date(2026, 8, 20),
+                date(2026, 8, 26),
+                type_key=None,
+                offset=0,
+                limit=20,
+            )
+        blocker.execute("ROLLBACK")
 
 
 def test_failed_reconcile_rolls_back_all_activity_changes(tmp_path: Path) -> None:
