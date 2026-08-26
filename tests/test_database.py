@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import omarchy_garmin.database as database_module
 from omarchy_garmin.activities import Activity
 from omarchy_garmin.database import (
     SCHEMA_VERSION,
@@ -76,6 +77,38 @@ def test_first_reconcile_creates_versioned_owner_only_database(tmp_path: Path) -
     assert _rows(database) == [("101", "Synthetic activity", "unfamiliar_sport", "2026-08-25")]
     assert repository.full_reconciliation_due(date(2026, 8, 26)) is False
     assert repository.full_reconciliation_due(date(2026, 8, 27)) is True
+
+
+def test_failed_future_migration_rolls_back_schema_and_preserves_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = tmp_path / "activities.sqlite3"
+    repository = ActivityRepository(database)
+    repository.reconcile(
+        [_activity("101", date(2026, 8, 25))],
+        start_date=date(2026, 5, 29),
+        end_date=date(2026, 8, 26),
+        completed_at=_COMPLETED_AT,
+        full=True,
+    )
+    failing_migrations = {
+        **database_module._MIGRATIONS,
+        2: "CREATE TABLE migration_probe (value TEXT) STRICT; INVALID SQL;",
+    }
+    monkeypatch.setattr(database_module, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(database_module, "_MIGRATIONS", failing_migrations)
+
+    with pytest.raises(ActivityDatabaseError):
+        repository.full_reconciliation_due(date(2026, 8, 27))
+
+    with closing(sqlite3.connect(database)) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        probe_table = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'migration_probe'"
+        ).fetchone()
+    assert version == 1
+    assert probe_table is None
+    assert _rows(database) == [("101", "Synthetic activity", "synthetic_sport", "2026-08-25")]
 
 
 def test_incremental_reconcile_updates_changes_and_removes_remote_deletions(
