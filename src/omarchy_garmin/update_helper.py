@@ -168,9 +168,12 @@ def _parse_state(raw: bytes) -> UpdateCheckState | None:
         "remoteCommit",
     }:
         return None
+    schema_version = value["schemaVersion"]
     timestamp = value["lastAttemptEpochSeconds"]
     if (
-        value["schemaVersion"] != 1
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version != 1
         or not isinstance(timestamp, int)
         or isinstance(timestamp, bool)
         or not 0 <= timestamp <= MAX_EPOCH_SECONDS
