@@ -273,6 +273,58 @@ TestCase {
     return options
   }
 
+  function test_suspend_gap_detection_ignores_normal_ticks_and_clock_reversal() {
+    verify(!Model.suspendGapDetected(100000, 100000 + Model.RECOVERY_HEARTBEAT_INTERVAL_MS))
+    verify(!Model.suspendGapDetected(100000, 99999))
+    verify(!Model.suspendGapDetected(0, 100000))
+    verify(Model.suspendGapDetected(100000, 100000 + Model.RECOVERY_SUSPEND_GAP_MS))
+  }
+
+  function test_suspended_countdown_is_distinguished_from_normal_timer_jitter() {
+    verify(!Model.timerOverrunDetected(100000, 130000, 30000))
+    verify(!Model.timerOverrunDetected(100000, 134999, 30000))
+    verify(Model.timerOverrunDetected(100000, 135000, 30000))
+    verify(!Model.timerOverrunDetected(100000, 200000, 0))
+  }
+
+  function test_offline_recovery_stops_after_connectivity_is_restored() {
+    var retry = Model.recoveryTransition(0, "offline")
+    verify(retry.active)
+    compare(retry.retryCount, 1)
+    compare(retry.delayMs, 30000)
+
+    var recovered = Model.recoveryTransition(retry.retryCount, "success")
+    verify(!recovered.active)
+    compare(recovered.retryCount, 0)
+    compare(recovered.delayMs, -1)
+  }
+
+  function test_offline_recovery_has_a_bounded_retry_budget() {
+    var first = Model.recoveryTransition(0, "offline")
+    var second = Model.recoveryTransition(first.retryCount, "offline")
+    var exhausted = Model.recoveryTransition(second.retryCount, "offline")
+
+    compare(first.delayMs, 30000)
+    compare(second.delayMs, 120000)
+    verify(!exhausted.active)
+    compare(exhausted.delayMs, -1)
+  }
+
+  function test_non_connectivity_failures_do_not_enter_recovery() {
+    compare(Model.recoveryTransition(0, "rateLimited").delayMs, -1)
+    compare(Model.recoveryTransition(0, "reconnect").delayMs, -1)
+    compare(Model.recoveryTransition(0, "local").delayMs, -1)
+    compare(Model.recoveryTransition(0, "").delayMs, -1)
+  }
+
+  function test_manual_refresh_uses_the_pending_recovery_attempt() {
+    compare(Model.refreshOrigin(undefined, false), "manual")
+    compare(Model.refreshOrigin(undefined, true), "recovery")
+    compare(Model.refreshOrigin("manual", true), "recovery")
+    compare(Model.refreshOrigin("scheduled", true), "scheduled")
+    compare(Model.refreshOrigin("recovery", false), "recovery")
+  }
+
   function test_connection_states_cover_expected_failures() {
     compare(Model.connectionState(stateOptions({ demoMode: true, backendReady: false })), "connected")
     compare(Model.connectionState(stateOptions({ backendReady: false })), "setup")
