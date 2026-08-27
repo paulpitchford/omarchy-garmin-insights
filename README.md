@@ -104,7 +104,7 @@ omarchy bar set io.github.paulpitchford.garmin-insights demoMode false --json
 - In a detail view, choose **Open in Garmin Connect** explicitly; Left or Escape returns to the list.
 - Press `R` to refresh, Tab to switch panels, and Escape from the summary to close.
 
-Mouse users can select **Browse all activities**, an activity-type row, a list row, and the explicit Garmin Connect action. Hovering an activity-time bar shows its exact date range, activity count, duration, and partial-current-period status. Charts are informational and do not add keyboard targets; the existing list remains the exact keyboard-accessible lookup path. Lists contain at most 20 rows per page. The horizontal bar shows the selected period's activity count. A vertical bar uses an icon-only form.
+Mouse users can select **Browse all activities**, an activity-type row, a list row, and the explicit Garmin Connect action. Hovering an activity-time bar shows its exact date range, activity count, duration, and partial-current-period status. Charts are informational and do not add keyboard targets; the existing list remains the exact keyboard-accessible lookup path. When content is taller than the available panel, a vertical scrollbar appears while the refresh action and keyboard help remain visible in a fixed footer. Lists contain at most 20 rows per page. The horizontal bar shows the selected period's activity count. A vertical bar uses an icon-only form.
 
 ### Settings
 

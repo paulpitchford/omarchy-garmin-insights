@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls as Controls
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
@@ -269,11 +270,13 @@ Panel {
 
   onSettingsChanged: periodIndex = configuredPeriodIndex()
   onSummaryCursorCountChanged: summaryIndex = Math.min(summaryIndex, summaryCursorCount - 1)
+  onViewModeChanged: scroll.contentY = 0
   onOpenedChanged: if (opened) {
     periodIndex = configuredPeriodIndex()
     viewMode = "summary"
     cursorActive = false
     panelNotice = ""
+    scroll.contentY = 0
     if (service && service.summaryStale) service.refresh()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -307,7 +310,9 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(430))
-    contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight, Style.space(620))
+    contentHeight: panel.fittedContentHeight(
+      contentColumn.implicitHeight + panelFooter.implicitHeight + Style.space(10),
+      Style.space(640))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -324,12 +329,21 @@ Panel {
 
       Flickable {
         id: scroll
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: panelFooter.top
+        anchors.bottomMargin: Style.space(10)
         contentWidth: width
         contentHeight: contentColumn.implicitHeight
         clip: true
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
+        Controls.ScrollBar.vertical: Controls.ScrollBar {
+          policy: Controls.ScrollBar.AsNeeded
+          active: scroll.interactive
+        }
 
         Column {
           id: contentColumn
@@ -974,33 +988,47 @@ Panel {
             }
           }
 
-          Button {
-            visible: root.viewMode === "summary"
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: root.actionLabel()
-            iconText: root.service && root.service.refreshing ? "󰦖" : "󰑐"
-            iconSpinning: root.service && root.service.refreshing
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            enabled: root.service && !root.service.processRunning
-              && !(root.service.connectionState === "setup" && root.service.uvPath === "")
-            bordered: true
-            onClicked: root.primaryAction()
-          }
+        }
+      }
 
-          Text {
-            width: parent.width
-            text: root.viewMode === "summary"
-              ? "Arrows browse · Enter open · R refresh · Tab · Esc"
-              : (root.viewMode === "list"
-                ? "↑/↓ select · →/Enter open · ←/Esc back · R refresh"
-                : "↑/↓ action · Enter · ←/Esc back · R refresh")
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            horizontalAlignment: Text.AlignHCenter
-            wrapMode: Text.WordWrap
-          }
+      Column {
+        id: panelFooter
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        spacing: Style.space(6)
+
+        PanelSeparator {
+          width: parent.width
+          foreground: root.foreground
+        }
+
+        Button {
+          visible: root.viewMode === "summary"
+          anchors.horizontalCenter: parent.horizontalCenter
+          text: root.actionLabel()
+          iconText: root.service && root.service.refreshing ? "󰦖" : "󰑐"
+          iconSpinning: root.service && root.service.refreshing
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          enabled: root.service && !root.service.processRunning
+            && !(root.service.connectionState === "setup" && root.service.uvPath === "")
+          bordered: true
+          onClicked: root.primaryAction()
+        }
+
+        Text {
+          width: parent.width
+          text: root.viewMode === "summary"
+            ? "Arrows browse · Enter open · R refresh · Tab · Esc"
+            : (root.viewMode === "list"
+              ? "↑/↓ select · →/Enter open · ←/Esc back · R refresh"
+              : "↑/↓ action · Enter · ←/Esc back · R refresh")
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          horizontalAlignment: Text.AlignHCenter
+          wrapMode: Text.WordWrap
         }
       }
     }
