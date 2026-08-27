@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -86,6 +87,13 @@ def test_reader_distinguishes_missing_cache_from_unsafe_storage(tmp_path: Path) 
 
     with pytest.raises(DisplayCacheMissingError, match="does not exist"):
         DisplayCacheReader(paths).read(DisplayCacheKind.SUMMARY)
+
+
+def test_reader_rejects_unhandled_cache_kind(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+
+    with pytest.raises(DisplayCacheDataError, match="kind is not implemented"):
+        DisplayCacheReader(paths).read(cast(Any, "future-cache"))
 
 
 def test_reader_rejects_invalid_utf8(tmp_path: Path) -> None:

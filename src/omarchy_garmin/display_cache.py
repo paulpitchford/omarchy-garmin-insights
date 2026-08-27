@@ -56,9 +56,11 @@ class DisplayCacheReader:
         if kind is DisplayCacheKind.SUMMARY:
             path = self._paths.summary_file
             max_bytes = MAX_SUMMARY_BYTES
-        else:
+        elif kind is DisplayCacheKind.ACTIVITY_TRENDS:
             path = self._paths.activity_trends_file
             max_bytes = MAX_ACTIVITY_TRENDS_BYTES
+        else:
+            raise DisplayCacheDataError("display cache kind is not implemented")
 
         try:
             content = read_private_file(path, max_bytes=max_bytes)
