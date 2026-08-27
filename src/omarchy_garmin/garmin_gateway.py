@@ -172,8 +172,11 @@ class GarminActivityGateway:
         """Restore tokens and call ``get_activities_by_date`` without a type filter."""
         try:
             token_text = token_json.decode("utf-8")
+            validate_token_json(token_json)
         except UnicodeDecodeError as error:
             raise ActivityDataError("stored Garmin tokens are not UTF-8") from error
+        except ValueError as error:
+            raise ActivityDataError("stored Garmin tokens are invalid") from error
 
         client = Garmin(
             retry_attempts=_ACTIVITY_RETRY_ATTEMPTS,
@@ -183,7 +186,12 @@ class GarminActivityGateway:
         )
         try:
             with _request_deadline(_ACTIVITY_DEADLINE_SECONDS):
-                client.login(tokenstore=token_text)
+                # Garmin.login() falls back to credential authentication when an
+                # offline proactive token refresh fails, hiding the transport
+                # error as "credentials required". Load the already validated
+                # dedicated token material directly so the first reviewed API
+                # request retains its network or authentication classification.
+                client.client.loads(token_text)
                 profile: object = client.connectapi(_SOCIAL_PROFILE_PATH)
                 payload: object = client.get_activities_by_date(
                     start_date.isoformat(),

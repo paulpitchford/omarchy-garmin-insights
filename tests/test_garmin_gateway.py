@@ -245,7 +245,6 @@ def test_activity_fetch_uses_all_types_and_bounded_client_settings(
         retry_max_wait=2,
         verify_login=True,
     )
-    garmin.login.assert_called_once_with(tokenstore=_token())
     garmin.get_activities_by_date.assert_called_once_with(
         "2026-05-29",
         "2026-08-26",
@@ -253,6 +252,21 @@ def test_activity_fetch_uses_all_types_and_bounded_client_settings(
     )
     assert result.session.account_id == "10101"
     assert result.payload == [{"activityId": 101, "privateLocation": "ignored later"}]
+
+
+def test_activity_fetch_loads_validated_tokens_without_dependency_login_fallback(
+    garmin_constructor: Mock,
+) -> None:
+    garmin = garmin_constructor.return_value
+
+    GarminActivityGateway().fetch(
+        _token().encode(),
+        date(2026, 8, 20),
+        date(2026, 8, 26),
+    )
+
+    garmin.login.assert_not_called()
+    garmin.client.loads.assert_called_once_with(_token())
 
 
 @pytest.mark.parametrize(
@@ -280,7 +294,7 @@ def test_activity_dependency_errors_are_mapped(
     external_error: Exception,
     domain_error: type[Exception],
 ) -> None:
-    garmin_constructor.return_value.login.side_effect = external_error
+    garmin_constructor.return_value.connectapi.side_effect = external_error
 
     with pytest.raises(domain_error) as caught:
         GarminActivityGateway().fetch(
@@ -310,6 +324,8 @@ def test_activity_fetch_rejects_invalid_local_or_refreshed_tokens(
 ) -> None:
     with pytest.raises(ActivityDataError):
         GarminActivityGateway().fetch(b"\xff", date(2026, 8, 20), date(2026, 8, 26))
+    with pytest.raises(ActivityDataError):
+        GarminActivityGateway().fetch(b"{}", date(2026, 8, 20), date(2026, 8, 26))
 
     garmin_constructor.return_value.client.dumps.return_value = "{}"
     with pytest.raises(ActivityDataError):
