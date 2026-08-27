@@ -5,7 +5,7 @@
   "version": "0.1.1",
   "author": "Paul Pitchford",
   "license": "MIT",
-  "description": "Recent Garmin Connect activity summaries in the Omarchy bar.",
+  "description": "Recent Garmin Connect activity summaries and trends in the Omarchy bar.",
   "kinds": [
     "service",
     "bar-widget"
@@ -16,7 +16,7 @@
   },
   "barWidget": {
     "displayName": "Garmin Insights",
-    "description": "Recent Garmin Connect activity totals and per-type breakdowns.",
+    "description": "Recent Garmin Connect activity totals, trends, and per-type breakdowns.",
     "category": "Health",
     "allowMultiple": false,
     "defaultSection": "right",

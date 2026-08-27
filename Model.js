@@ -4,6 +4,11 @@ var SUMMARY_SCHEMA_VERSION = 1
 var MAX_SUMMARY_CHARS = 1048576
 var MAX_ACTIVITY_COUNT = 20000
 var MAX_TYPES = 256
+var ACTIVITY_TRENDS_SCHEMA_VERSION = 1
+var MAX_ACTIVITY_TRENDS_CHARS = 65536
+var TREND_PERIOD_KEYS = ["7Days", "30Days", "90Days"]
+var TREND_PERIOD_DAYS = [7, 30, 90]
+var TREND_POINT_COUNTS = [7, 30, 13]
 var PERIOD_KEYS = ["today", "7Days", "30Days", "90Days"]
 var PERIOD_DAYS = [1, 7, 30, 90]
 var UPDATE_REPOSITORY_URL = "https://github.com/paulpitchford/omarchy-garmin-insights.git"
@@ -152,6 +157,171 @@ function parseSummary(raw) {
       periods: periods
     }
   }
+}
+
+function addCalendarDays(value, days) {
+  var parsed = new Date(value + "T00:00:00Z")
+  parsed.setUTCDate(parsed.getUTCDate() + days)
+  return parsed.toISOString().slice(0, 10)
+}
+
+function normalizeTrendMetric(metric, activityCount) {
+  if (!hasOnlyKeys(metric, ["value", "contributingActivityCount"])
+      || !isInteger(metric.contributingActivityCount)
+      || metric.contributingActivityCount > activityCount) return null
+  if (activityCount === 0)
+    return metric.value === 0 && metric.contributingActivityCount === 0
+      ? { value: 0, contributingActivityCount: 0 } : null
+  if (metric.contributingActivityCount === 0)
+    return metric.value === null ? { value: null, contributingActivityCount: 0 } : null
+  return isFiniteNumber(metric.value)
+    ? { value: metric.value, contributingActivityCount: metric.contributingActivityCount }
+    : null
+}
+
+function normalizeTrendPoint(source, expectedStart, expectedEnd, expectedPartial) {
+  if (!hasOnlyKeys(source, [
+      "startDate", "endDate", "partial", "activityCount", "durationSeconds",
+      "distanceMetres", "elevationGainMetres", "energyJoules"
+    ]) || source.startDate !== expectedStart || source.endDate !== expectedEnd
+      || source.partial !== expectedPartial || !isInteger(source.activityCount)
+      || source.activityCount > MAX_ACTIVITY_COUNT) return null
+  var point = {
+    startDate: source.startDate,
+    endDate: source.endDate,
+    partial: source.partial,
+    activityCount: source.activityCount
+  }
+  var keys = ["durationSeconds", "distanceMetres", "elevationGainMetres", "energyJoules"]
+  for (var i = 0; i < keys.length; i++) {
+    var metric = normalizeTrendMetric(source[keys[i]], source.activityCount)
+    if (!metric) return null
+    point[keys[i]] = metric
+  }
+  return point
+}
+
+function normalizeTrendPeriod(source, expectedKey, expectedEnd, expectedDays, expectedPoints) {
+  var expectedStart = addCalendarDays(expectedEnd, 1 - expectedDays)
+  if (!hasOnlyKeys(source, ["key", "startDate", "endDate", "points"])
+      || source.key !== expectedKey || source.startDate !== expectedStart
+      || source.endDate !== expectedEnd || !Array.isArray(source.points)
+      || source.points.length !== expectedPoints) return null
+
+  var points = []
+  var pointStart = expectedStart
+  for (var i = 0; i < source.points.length; i++) {
+    var span = expectedKey === "90Days" ? (i === 0 ? 6 : 7) : 1
+    var pointEnd = addCalendarDays(pointStart, span - 1)
+    var point = normalizeTrendPoint(
+      source.points[i], pointStart, pointEnd, i === source.points.length - 1)
+    if (!point) return null
+    points.push(point)
+    pointStart = addCalendarDays(pointEnd, 1)
+  }
+  if (addCalendarDays(pointStart, -1) !== expectedEnd) return null
+  return {
+    key: expectedKey,
+    startDate: expectedStart,
+    endDate: expectedEnd,
+    points: points
+  }
+}
+
+function parseActivityTrends(raw) {
+  var text = String(raw || "")
+  if (text.length === 0) return { ok: false, error: "missing" }
+  if (text.length > MAX_ACTIVITY_TRENDS_CHARS) return { ok: false, error: "too_large" }
+  var source
+  try {
+    source = JSON.parse(text)
+  } catch (error) {
+    return { ok: false, error: "invalid_json" }
+  }
+  if (!hasOnlyKeys(source, ["schemaVersion", "generatedAt", "asOfLocalDate", "periods"])
+      || source.schemaVersion !== ACTIVITY_TRENDS_SCHEMA_VERSION
+      || !validTimestamp(source.generatedAt) || !validDate(source.asOfLocalDate)
+      || !Array.isArray(source.periods) || source.periods.length !== TREND_PERIOD_KEYS.length)
+    return { ok: false, error: "invalid_schema" }
+
+  var periods = []
+  for (var i = 0; i < TREND_PERIOD_KEYS.length; i++) {
+    var period = normalizeTrendPeriod(
+      source.periods[i], TREND_PERIOD_KEYS[i], source.asOfLocalDate,
+      TREND_PERIOD_DAYS[i], TREND_POINT_COUNTS[i])
+    if (!period) return { ok: false, error: "invalid_period" }
+    periods.push(period)
+  }
+  return {
+    ok: true,
+    trends: {
+      schemaVersion: ACTIVITY_TRENDS_SCHEMA_VERSION,
+      generatedAt: source.generatedAt,
+      generatedMs: Date.parse(source.generatedAt),
+      asOfLocalDate: source.asOfLocalDate,
+      periods: periods
+    }
+  }
+}
+
+function trendMetricMatchesSummary(period, summaryMetric, key) {
+  var contributors = 0
+  var total = 0
+  for (var i = 0; i < period.points.length; i++) {
+    var metric = period.points[i][key]
+    contributors += metric.contributingActivityCount
+    if (metric.contributingActivityCount > 0) total += metric.value
+  }
+  if (contributors !== summaryMetric.contributingActivityCount) return false
+  if (contributors === 0) return summaryMetric.value === null
+  var tolerance = Math.max(1, Math.abs(summaryMetric.value)) * 1e-9
+  return Math.abs(total - summaryMetric.value) <= tolerance
+}
+
+function trendsForSummary(trends, summary) {
+  if (!trends || !summary || trends.generatedAt !== summary.generatedAt
+      || trends.asOfLocalDate !== summary.asOfLocalDate) return null
+  var metricKeys = ["durationSeconds", "distanceMetres", "elevationGainMetres", "energyJoules"]
+  for (var i = 0; i < trends.periods.length; i++) {
+    var trendPeriod = trends.periods[i]
+    var summaryPeriod = periodByKey(summary, trendPeriod.key)
+    if (!summaryPeriod || summaryPeriod.startDate !== trendPeriod.startDate
+        || summaryPeriod.endDate !== trendPeriod.endDate) return null
+    var activityCount = 0
+    for (var pointIndex = 0; pointIndex < trendPeriod.points.length; pointIndex++)
+      activityCount += trendPeriod.points[pointIndex].activityCount
+    if (activityCount !== summaryPeriod.overall.activityCount) return null
+    for (var metricIndex = 0; metricIndex < metricKeys.length; metricIndex++) {
+      var key = metricKeys[metricIndex]
+      if (!trendMetricMatchesSummary(trendPeriod, summaryPeriod.overall[key], key)) return null
+    }
+  }
+  return trends
+}
+
+function trendByKey(trends, key) {
+  if (!trends || !Array.isArray(trends.periods)) return null
+  for (var i = 0; i < trends.periods.length; i++)
+    if (trends.periods[i].key === key) return trends.periods[i]
+  return null
+}
+
+function trendDurationPeak(period) {
+  if (!period || !Array.isArray(period.points)) return 0
+  var peak = 0
+  for (var i = 0; i < period.points.length; i++) {
+    var value = period.points[i].durationSeconds.value
+    if (value !== null) peak = Math.max(peak, value)
+  }
+  return peak
+}
+
+function typeActivityShare(period, activityCount) {
+  if (!period || !Array.isArray(period.byType) || !isFiniteNumber(activityCount)) return 0
+  var peak = 0
+  for (var i = 0; i < period.byType.length; i++)
+    peak = Math.max(peak, Number(period.byType[i].activityCount || 0))
+  return peak > 0 ? Math.max(0, Math.min(1, activityCount / peak)) : 0
 }
 
 var MAX_ACTIVITY_PAGE_CHARS = 65536
@@ -387,54 +557,179 @@ function garminConnectUrl(activityId) {
     ? "https://connect.garmin.com/app/activity/" + activityId : ""
 }
 
-function aggregate(activityCount, duration, distance, energy, heartRate, speed, power, sets, repetitions) {
-  return {
-    activityCount: activityCount,
-    durationSeconds: { value: duration, contributingActivityCount: activityCount },
-    movingDurationSeconds: { value: duration === null ? null : duration * 0.92, contributingActivityCount: activityCount },
-    distanceMetres: { value: distance, contributingActivityCount: distance === null ? 0 : activityCount },
-    elevationGainMetres: { value: distance === null ? null : distance * 0.012, contributingActivityCount: distance === null ? 0 : activityCount },
-    energyJoules: { value: energy, contributingActivityCount: energy === null ? 0 : activityCount },
-    averageHeartRateBpm: { value: heartRate, contributingActivityCount: heartRate === null ? 0 : activityCount },
-    maximumHeartRateBpm: { value: heartRate === null ? null : heartRate + 24, contributingActivityCount: heartRate === null ? 0 : activityCount },
-    averageSpeedMetresPerSecond: { value: speed, contributingActivityCount: speed === null ? 0 : activityCount },
-    averagePowerWatts: { value: power, contributingActivityCount: power === null ? 0 : activityCount },
-    totalSets: { value: sets, contributingActivityCount: sets === null ? 0 : activityCount },
-    totalRepetitions: { value: repetitions, contributingActivityCount: repetitions === null ? 0 : activityCount }
-  }
-}
-
-function typed(typeKey, values) {
-  values.typeKey = typeKey
-  return values
-}
-
 function dateDaysAgo(generated, days) {
   var value = new Date(generated.getTime())
   value.setUTCDate(value.getUTCDate() - days)
   return value.toISOString().slice(0, 10)
 }
 
+function syntheticSummaryTotal(records, key) {
+  var total = 0
+  var contributors = 0
+  for (var i = 0; i < records.length; i++) {
+    if (records[i][key] === null) continue
+    total += records[i][key]
+    contributors++
+  }
+  return {
+    value: contributors > 0 ? total : null,
+    contributingActivityCount: contributors
+  }
+}
+
+function syntheticSummaryMaximum(records, key) {
+  var maximum = null
+  var contributors = 0
+  for (var i = 0; i < records.length; i++) {
+    if (records[i][key] === null) continue
+    maximum = maximum === null ? records[i][key] : Math.max(maximum, records[i][key])
+    contributors++
+  }
+  return { value: maximum, contributingActivityCount: contributors }
+}
+
+function syntheticSummaryWeighted(records, valueKey, weightKey) {
+  var weightedTotal = 0
+  var totalWeight = 0
+  var contributors = 0
+  for (var i = 0; i < records.length; i++) {
+    var value = records[i][valueKey]
+    var weight = records[i][weightKey]
+    if (value === null || weight === null || weight <= 0) continue
+    weightedTotal += value * weight
+    totalWeight += weight
+    contributors++
+  }
+  return {
+    value: contributors > 0 ? weightedTotal / totalWeight : null,
+    contributingActivityCount: contributors
+  }
+}
+
+function syntheticSummaryAggregate(records) {
+  return {
+    activityCount: records.length,
+    durationSeconds: syntheticSummaryTotal(records, "durationSeconds"),
+    movingDurationSeconds: syntheticSummaryTotal(records, "movingDurationSeconds"),
+    distanceMetres: syntheticSummaryTotal(records, "distanceMetres"),
+    elevationGainMetres: syntheticSummaryTotal(records, "elevationGainMetres"),
+    energyJoules: syntheticSummaryTotal(records, "energyJoules"),
+    averageHeartRateBpm: syntheticSummaryWeighted(records, "averageHeartRateBpm", "durationSeconds"),
+    maximumHeartRateBpm: syntheticSummaryMaximum(records, "maximumHeartRateBpm"),
+    averageSpeedMetresPerSecond: syntheticSummaryWeighted(
+      records, "averageSpeedMetresPerSecond", "movingDurationSeconds"),
+    averagePowerWatts: syntheticSummaryWeighted(records, "averagePowerWatts", "durationSeconds"),
+    totalSets: syntheticSummaryTotal(records, "totalSets"),
+    totalRepetitions: syntheticSummaryTotal(records, "totalRepetitions")
+  }
+}
+
+function syntheticSummaryPeriod(records, key, startDate, endDate) {
+  var matching = records.filter(function(activity) {
+    return activity.localDate >= startDate && activity.localDate <= endDate
+  })
+  var groups = {}
+  for (var i = 0; i < matching.length; i++) {
+    var typeKey = matching[i].typeKey
+    if (!groups[typeKey]) groups[typeKey] = []
+    groups[typeKey].push(matching[i])
+  }
+  var byType = Object.keys(groups).map(function(typeKey) {
+    var aggregate = syntheticSummaryAggregate(groups[typeKey])
+    aggregate.typeKey = typeKey
+    return aggregate
+  })
+  byType.sort(function(a, b) {
+    if (a.activityCount !== b.activityCount) return b.activityCount - a.activityCount
+    return a.typeKey < b.typeKey ? -1 : (a.typeKey > b.typeKey ? 1 : 0)
+  })
+  return {
+    key: key,
+    startDate: startDate,
+    endDate: endDate,
+    overall: syntheticSummaryAggregate(matching),
+    byType: byType
+  }
+}
+
 function syntheticSummary(nowMs) {
   var generated = new Date(nowMs || Date.now())
   generated.setUTCMilliseconds(0)
   var today = dateDaysAgo(generated, 0)
-  var running = typed("running", aggregate(2, 4380, 12400, 3100000, 146, 2.84, null, null, null))
-  var cycling = typed("cycling", aggregate(1, 5400, 32600, 2800000, 138, 6.04, 184, null, null))
-  var strength = typed("strength_training", aggregate(1, 2700, null, 1700000, 128, null, null, 12, 96))
-  var week = aggregate(4, 12480, 45000, 7600000, 139, 4.54, 184, 12, 96)
-  var month = aggregate(13, 39720, 143800, 24100000, 141, 4.42, 191, 38, 304)
-  var quarter = aggregate(37, 112800, 421300, 69800000, 140, 4.37, 188, 104, 832)
+  var records = syntheticActivityRecords(today)
   return {
     schemaVersion: SUMMARY_SCHEMA_VERSION,
     generatedAt: generated.toISOString().replace(".000Z", "Z"),
     generatedMs: generated.getTime(),
     asOfLocalDate: today,
     periods: [
-      { key: "today", startDate: today, endDate: today, overall: aggregate(1, 2700, null, 1700000, 128, null, null, 12, 96), byType: [strength] },
-      { key: "7Days", startDate: dateDaysAgo(generated, 6), endDate: today, overall: week, byType: [running, cycling, strength] },
-      { key: "30Days", startDate: dateDaysAgo(generated, 29), endDate: today, overall: month, byType: [typed("running", aggregate(6, 13200, 38200, 8500000, 144, 2.89, null, null, null)), typed("cycling", aggregate(4, 20100, 105600, 9800000, 137, 5.25, 191, null, null)), typed("strength_training", aggregate(3, 6420, null, 5800000, 129, null, null, 38, 304))] },
-      { key: "90Days", startDate: dateDaysAgo(generated, 89), endDate: today, overall: quarter, byType: [typed("running", aggregate(17, 38100, 110400, 24600000, 143, 2.90, null, null, null)), typed("cycling", aggregate(12, 56300, 310900, 27800000, 136, 5.52, 188, null, null)), typed("strength_training", aggregate(8, 18400, null, 17400000, 130, null, null, 104, 832))] }
+      syntheticSummaryPeriod(records, "today", today, today),
+      syntheticSummaryPeriod(records, "7Days", dateDaysAgo(generated, 6), today),
+      syntheticSummaryPeriod(records, "30Days", dateDaysAgo(generated, 29), today),
+      syntheticSummaryPeriod(records, "90Days", dateDaysAgo(generated, 89), today)
+    ]
+  }
+}
+
+function syntheticTrendMetric(records, key) {
+  if (records.length === 0) return { value: 0, contributingActivityCount: 0 }
+  var total = 0
+  var contributors = 0
+  for (var i = 0; i < records.length; i++) {
+    if (records[i][key] === null) continue
+    total += records[i][key]
+    contributors++
+  }
+  return {
+    value: contributors > 0 ? total : null,
+    contributingActivityCount: contributors
+  }
+}
+
+function syntheticTrendPoint(records, startDate, endDate, partial) {
+  var matching = records.filter(function(activity) {
+    return activity.localDate >= startDate && activity.localDate <= endDate
+  })
+  return {
+    startDate: startDate,
+    endDate: endDate,
+    partial: partial,
+    activityCount: matching.length,
+    durationSeconds: syntheticTrendMetric(matching, "durationSeconds"),
+    distanceMetres: syntheticTrendMetric(matching, "distanceMetres"),
+    elevationGainMetres: syntheticTrendMetric(matching, "elevationGainMetres"),
+    energyJoules: syntheticTrendMetric(matching, "energyJoules")
+  }
+}
+
+function syntheticTrendPeriod(records, key, asOfDate, days) {
+  var startDate = addCalendarDays(asOfDate, 1 - days)
+  var points = []
+  var pointStart = startDate
+  var index = 0
+  while (pointStart <= asOfDate) {
+    var span = key === "90Days" ? (index === 0 ? 6 : 7) : 1
+    var pointEnd = addCalendarDays(pointStart, span - 1)
+    points.push(syntheticTrendPoint(records, pointStart, pointEnd, pointEnd === asOfDate))
+    pointStart = addCalendarDays(pointEnd, 1)
+    index++
+  }
+  return { key: key, startDate: startDate, endDate: asOfDate, points: points }
+}
+
+function syntheticActivityTrends(nowMs) {
+  var generated = new Date(nowMs || Date.now())
+  generated.setUTCMilliseconds(0)
+  var asOfDate = dateDaysAgo(generated, 0)
+  var records = syntheticActivityRecords(asOfDate)
+  return {
+    schemaVersion: ACTIVITY_TRENDS_SCHEMA_VERSION,
+    generatedAt: generated.toISOString().replace(".000Z", "Z"),
+    asOfLocalDate: asOfDate,
+    periods: [
+      syntheticTrendPeriod(records, "7Days", asOfDate, 7),
+      syntheticTrendPeriod(records, "30Days", asOfDate, 30),
+      syntheticTrendPeriod(records, "90Days", asOfDate, 90)
     ]
   }
 }

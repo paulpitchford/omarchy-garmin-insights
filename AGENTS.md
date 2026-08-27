@@ -32,7 +32,7 @@ Use these boundaries unless an approved design change updates this file:
 2. `BarWidget.qml` and its nested `Panel.qml` render state from the singleton service. They do not authenticate, query Garmin, or aggregate activities.
 3. The Python backend is a short-lived command. There is no persistent Python daemon or systemd service.
 4. Python owns authentication, Garmin requests, validation, SQLite, aggregation, display JSON generation, and private update-cadence metadata.
-5. QML reads bounded summary, activity-list, activity-detail, and update-check contracts. It never reads tokens, raw Garmin responses, or SQLite. The singleton service may run bounded `/usr/bin/git` commands only for the fixed public update check documented below.
+5. QML reads bounded summary, activity-trends, activity-list, activity-detail, and update-check contracts. It never reads tokens, raw Garmin responses, or SQLite. The singleton service may run bounded `/usr/bin/git` commands only for the fixed public update check documented below.
 6. Store canonical measurements in SI units. Convert units only at presentation boundaries.
 7. The first release uses activity summary responses and does not download FIT files.
 8. The QML service accepts `uv` only from `/usr/bin/uv`, `~/.local/bin/uv`, or `~/.local/share/mise/shims/uv`. Before invoking uv, `/usr/bin/python3` runs the stdlib-only tracked cache bootstrap to secure the application cache root as `0700`. Routine backend commands use `uv run --locked --no-sync`; dependency setup is an explicit visible-terminal `uv sync --locked --no-dev` action. Set `UV_PROJECT_ENVIRONMENT` to `$XDG_CACHE_HOME/omarchy-garmin-insights/uv-environment` so dependency symlinks never enter the plugin checkout.
@@ -58,6 +58,7 @@ Planned storage:
 $XDG_STATE_HOME/omarchy-garmin-insights/auth/garmin_tokens.json
 $XDG_DATA_HOME/omarchy-garmin-insights/activities.sqlite3
 $XDG_CACHE_HOME/omarchy-garmin-insights/summary.json
+$XDG_CACHE_HOME/omarchy-garmin-insights/activity-trends.json
 $XDG_CACHE_HOME/omarchy-garmin-insights/update-check.json
 $XDG_RUNTIME_DIR/omarchy-garmin-insights/sync.lock
 $XDG_RUNTIME_DIR/omarchy-garmin-insights/update-check.lock
@@ -76,7 +77,7 @@ Do not store:
 - raw request or response bodies; or
 - fields that have not been reviewed and documented.
 
-Missing values remain `None` or JSON `null`. Do not turn missing values into zero. Preserve Garmin's original activity type key and apply a display grouping separately so new types degrade safely. Summary schema version 1 excludes activity names, identifiers, and start times. It carries overall and original-type aggregates with a contributor count for every metric. The separate local-only list contract returns at most 20 rows and the detail contract returns one activity or a stable not-found result. Average heart rate and power use duration weighting; average speed uses moving-duration weighting. Values without a positive matching weight do not contribute.
+Missing values remain `None` or JSON `null`. Do not turn missing values into zero. Preserve Garmin's original activity type key and apply a display grouping separately so new types degrade safely. Summary schema version 1 excludes activity names, identifiers, and start times. It carries overall and original-type aggregates with a contributor count for every metric. The separate activity-trends schema contains only calendar bucket boundaries, activity counts, duration, distance, elevation, energy, and contributor counts derived from the same normalized snapshot. Its 7- and 30-day periods use daily points; its 90-day period uses one six-day oldest bucket followed by twelve seven-day buckets. A calendar bucket without activities is zero, while a metric missing from recorded activities remains null. The separate local-only list contract returns at most 20 rows and the detail contract returns one activity or a stable not-found result. Average heart rate and power use duration weighting; average speed uses moving-duration weighting. Values without a positive matching weight do not contribute.
 
 Use calendar periods based on the activity's local start date. Today includes today; 7, 30, and 90 days include today and the preceding 6, 29, or 89 local dates. Retain only the current rolling 90-day activity window. Incremental refreshes reconcile a seven-day overlap, and one full 90-day reconciliation runs per local calendar day.
 
@@ -149,6 +150,7 @@ omarchy plugin validate "$PLUGIN_DIR"
 qmllint -I "$OMARCHY_PATH/shell" \
   "$PLUGIN_DIR/BarWidget.qml" \
   "$PLUGIN_DIR/Panel.qml" \
+  "$PLUGIN_DIR/ActivityTimeChart.qml" \
   "$PLUGIN_DIR/Service.qml"
 ```
 

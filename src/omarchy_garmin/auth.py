@@ -314,6 +314,7 @@ class AuthStore:
                     remove_private_file(path)
             if self._cache_directory_exists():
                 remove_private_file(self._paths.summary_file)
+                remove_private_file(self._paths.activity_trends_file)
         except (OSError, UnsafeStoragePathError) as error:
             raise AuthStorageError("local Garmin data could not be purged safely") from error
 

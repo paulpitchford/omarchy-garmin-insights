@@ -15,6 +15,8 @@ Item {
   property bool demoMode: false
   property int refreshMinutes: 30
   property var cachedSummary: null
+  property var cachedActivityTrends: null
+  property string activityTrendsCacheError: ""
   property string failureKind: ""
   property string failureCode: ""
   property string cacheError: ""
@@ -71,8 +73,12 @@ Item {
     XDG_CONFIG_HOME: "/nonexistent"
   })
   readonly property string summaryPath: applicationCacheRoot + "/summary.json"
+  readonly property string activityTrendsPath: applicationCacheRoot + "/activity-trends.json"
   readonly property string pythonEnvironmentPath: applicationCacheRoot + "/uv-environment"
   readonly property var summary: demoMode ? Model.syntheticSummary(nowMs) : cachedSummary
+  readonly property var candidateActivityTrends: demoMode
+    ? Model.syntheticActivityTrends(nowMs) : cachedActivityTrends
+  readonly property var activityTrends: Model.trendsForSummary(candidateActivityTrends, summary)
   readonly property bool hasSummary: summary !== null
   readonly property double summaryAgeMs: hasSummary ? Math.max(0, nowMs - Number(summary.generatedMs || 0)) : 0
   readonly property bool summaryStale: hasSummary && !demoMode && summaryAgeMs > Math.max(60, refreshMinutes * 2) * 60000
@@ -582,6 +588,7 @@ Item {
     applyRecoveryResult("success")
     refreshGeneration++
     summaryFile.reload()
+    activityTrendsFile.reload()
   }
 
   function handleActivityList(exitCode, raw) {
@@ -666,6 +673,26 @@ Item {
     }
     onLoadFailed: {
       if (root.cachedSummary === null) root.cacheError = "missing"
+    }
+  }
+
+  FileView {
+    id: activityTrendsFile
+    path: root.activityTrendsPath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      var result = Model.parseActivityTrends(text())
+      if (result.ok) {
+        root.cachedActivityTrends = result.trends
+        root.activityTrendsCacheError = ""
+      } else {
+        root.activityTrendsCacheError = result.error
+      }
+    }
+    onLoadFailed: {
+      if (root.cachedActivityTrends === null) root.activityTrendsCacheError = "missing"
     }
   }
 

@@ -242,6 +242,7 @@ def _default_refresh_operations(paths: AppPaths) -> RefreshOperations:
     from omarchy_garmin.database import ActivityRepository
     from omarchy_garmin.garmin_gateway import GarminActivityGateway
     from omarchy_garmin.summary import SummaryCache
+    from omarchy_garmin.trends import ActivityTrendsCache
 
     return ActivitySyncService(
         paths=paths,
@@ -249,6 +250,7 @@ def _default_refresh_operations(paths: AppPaths) -> RefreshOperations:
         gateway=GarminActivityGateway(),
         repository=ActivityRepository(paths.activity_database),
         summary=SummaryCache(paths.summary_file),
+        trends=ActivityTrendsCache(paths.activity_trends_file),
     )
 
 
@@ -344,6 +346,7 @@ def _run_refresh(
         "endDate": result.end_date.isoformat(),
         "fetchedCount": result.fetched_count,
         "deletedCount": result.deleted_count,
+        "trendsUpdated": result.trends_updated,
     }
     return _write_auth_success(
         stdout=stdout,

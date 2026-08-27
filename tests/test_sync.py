@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 import omarchy_garmin.summary as summary_module
+import omarchy_garmin.trends as trends_module
 from omarchy_garmin.auth import AccountMismatchError, AuthenticatedSession, AuthStore
 from omarchy_garmin.database import ActivityRepository
 from omarchy_garmin.locking import activity_refresh_lock
@@ -24,6 +25,7 @@ from omarchy_garmin.sync import (
     ActivitySyncConfigurationError,
     ActivitySyncService,
 )
+from omarchy_garmin.trends import ActivityTrendsCache
 
 _TODAY = date(2026, 8, 26)
 _NOW = datetime(2026, 8, 26, 12, 30, tzinfo=UTC)
@@ -103,6 +105,7 @@ def _configured_service(
         gateway=selected_gateway,
         repository=ActivityRepository(paths.activity_database),
         summary=SummaryCache(paths.summary_file),
+        trends=ActivityTrendsCache(paths.activity_trends_file),
         today=lambda: _TODAY,
         now=lambda: _NOW,
     )
@@ -127,8 +130,12 @@ def test_first_refresh_fetches_full_90_day_period_and_persists_refreshed_tokens(
     summary = json.loads(paths.summary_file.read_bytes())
     assert b"latitude" not in database_bytes
     assert b"longitude" not in database_bytes
+    trends = json.loads(paths.activity_trends_file.read_bytes())
     assert summary["asOfLocalDate"] == "2026-08-26"
     assert summary["periods"][-1]["overall"]["activityCount"] == 1
+    assert trends["asOfLocalDate"] == "2026-08-26"
+    assert trends["periods"][-1]["points"][-1]["partial"] is True
+    assert result.trends_updated is True
 
 
 def test_later_refresh_on_same_day_uses_seven_day_overlap(tmp_path: Path) -> None:
@@ -163,6 +170,7 @@ def test_refresh_without_tokens_fails_before_garmin_request(tmp_path: Path) -> N
         gateway=gateway,
         repository=ActivityRepository(paths.activity_database),
         summary=SummaryCache(paths.summary_file),
+        trends=ActivityTrendsCache(paths.activity_trends_file),
     )
 
     with pytest.raises(ActivityAuthenticationRequiredError):
@@ -224,6 +232,24 @@ def test_failed_summary_write_preserves_database_but_reports_storage_failure(
         count = connection.execute("SELECT count(*) FROM activities").fetchone()[0]
     assert count == 1
     assert paths.summary_file.exists() is False
+
+
+def test_failed_optional_trend_write_keeps_successful_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, paths, _ = _configured_service(tmp_path)
+
+    def fail_write(destination: Path, content: bytes) -> None:
+        raise OSError("fabricated interrupted trend write")
+
+    monkeypatch.setattr(trends_module, "atomic_write_private", fail_write)
+
+    result = service.refresh()
+
+    assert result.trends_updated is False
+    assert paths.summary_file.exists() is True
+    assert paths.activity_trends_file.exists() is False
 
 
 def test_different_account_cannot_reach_activity_database(tmp_path: Path) -> None:

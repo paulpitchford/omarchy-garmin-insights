@@ -87,6 +87,7 @@ class _FakeRefreshOperations:
             end_date=date(2026, 8, 26),
             fetched_count=3,
             deleted_count=1,
+            trends_updated=True,
         )
 
 
@@ -762,6 +763,7 @@ def test_refresh_json_has_bounded_contract_and_forwards_full_option() -> None:
             "endDate": "2026-08-26",
             "fetchedCount": 3,
             "deletedCount": 1,
+            "trendsUpdated": True,
         },
         "error": None,
     }

@@ -1,6 +1,6 @@
 # Garmin Insights for Omarchy
 
-Garmin Insights is an Omarchy Quattro bar plugin that shows recent Garmin Connect activity totals. It covers today and the last 7, 30, and 90 calendar days, with separate rows for each Garmin activity type.
+Garmin Insights is an Omarchy Quattro bar plugin that shows recent Garmin Connect activity totals and trends. It covers today and the last 7, 30, and 90 calendar days, with separate rows for each Garmin activity type.
 
 ![Garmin Insights summary showing fabricated demo data](preview.png)
 
@@ -19,11 +19,13 @@ These screenshots use the plugin's built-in synthetic demo. They contain no data
 ## What it does
 
 - Shows activity count, duration, distance, and energy for the selected period.
+- Charts activity duration across 7 and 30 daily points or 13 trailing buckets for 90 days.
+- Adds proportional count fills behind the existing activity-type rows while keeping their exact values and drill-down actions.
 - Opens a bounded local activity list for a period or original Garmin activity type.
 - Shows the stored allowlisted details for one activity and can explicitly open it on Garmin Connect.
 - Breaks totals down by Garmin's original activity type, including types the plugin does not already know.
 - Supports metric, imperial, or locale-selected units.
-- Keeps a rolling 90-day local database and a smaller summary cache for the interface.
+- Keeps a rolling 90-day local database and bounded summary and activity-trends caches for the interface.
 - Refreshes every 30 minutes by default, keeps the last valid summary while offline, and makes bounded recovery attempts after resume or a connectivity failure.
 - Checks supported Git-managed installs for updates at most once per 24 hours and opens Omarchy's review flow on request.
 - Uses a visible terminal for Garmin login and supports MFA in the same login process.
@@ -36,7 +38,7 @@ Activity drill-down is local-only. It does not make another Garmin API request o
 
 ## Roadmap
 
-Later design work may add optional daily health cards and bar metrics for Body Battery, steps, sleep, stress, training readiness, HRV, resting heart rate, intensity minutes, floors, and calories. Seven-day trends and panel controls for card order and visibility are also under consideration. Garmin China support remains an open decision.
+Later design work may add optional daily health cards and bar metrics for Body Battery, steps, sleep, stress, training readiness, HRV, resting heart rate, intensity minutes, floors, and calories. A denser 90-day activity heatmap and panel controls for card order and visibility remain under consideration. Garmin China support remains an open decision.
 
 ## Requirements
 
@@ -102,7 +104,7 @@ omarchy bar set io.github.paulpitchford.garmin-insights demoMode false --json
 - In a detail view, choose **Open in Garmin Connect** explicitly; Left or Escape returns to the list.
 - Press `R` to refresh, Tab to switch panels, and Escape from the summary to close.
 
-Mouse users can select **Browse all activities**, an activity-type row, a list row, and the explicit Garmin Connect action. Lists contain at most 20 rows per page. The horizontal bar shows the selected period's activity count. A vertical bar uses an icon-only form.
+Mouse users can select **Browse all activities**, an activity-type row, a list row, and the explicit Garmin Connect action. Hovering an activity-time bar shows its exact date range, activity count, duration, and partial-current-period status. Charts are informational and do not add keyboard targets; the existing list remains the exact keyboard-accessible lookup path. Lists contain at most 20 rows per page. The horizontal bar shows the selected period's activity count. A vertical bar uses an icon-only form.
 
 ### Settings
 
@@ -218,7 +220,7 @@ backend activities detail --json --activity-id 900000000001
 
 Run `auth login` only in a visible interactive terminal. `auth status` checks local files and makes no Garmin request, so configured tokens remain "unverified" until login or refresh succeeds.
 
-`auth logout --confirm` removes Garmin tokens but keeps the account scope, activity database, and summary cache. `auth purge --confirm` removes all known authentication and activity data. Purge does not remove the downloaded Python environment.
+`auth logout --confirm` removes Garmin tokens but keeps the account scope, activity database, summary cache, and activity-trends cache. `auth purge --confirm` removes all known authentication and activity data. Purge does not remove the downloaded Python environment.
 
 ## Storage and privacy
 
@@ -230,6 +232,7 @@ The backend and update helper use the same XDG paths. Standard defaults apply wh
 | Account fingerprint | `$XDG_DATA_HOME/omarchy-garmin-insights/account_scope.json` | Until purge |
 | Normalised activities | `$XDG_DATA_HOME/omarchy-garmin-insights/activities.sqlite3` | Current rolling 90 days |
 | Interface summary | `$XDG_CACHE_HOME/omarchy-garmin-insights/summary.json` | Replaced after a successful refresh |
+| Activity trends | `$XDG_CACHE_HOME/omarchy-garmin-insights/activity-trends.json` | Replaced after a successful refresh when generation succeeds |
 | Update-check metadata | `$XDG_CACHE_HOME/omarchy-garmin-insights/update-check.json` | Last attempt and compared commit IDs |
 | Refresh lock | `$XDG_RUNTIME_DIR/omarchy-garmin-insights/sync.lock` | Runtime coordination only |
 | Update-check lock | `$XDG_RUNTIME_DIR/omarchy-garmin-insights/update-check.lock` | Runtime coordination only |
@@ -239,7 +242,7 @@ Defaults are `~/.local/state`, `~/.local/share`, and `~/.cache`. Private applica
 
 The account fingerprint is a one-way SHA-256 value used to prevent data from two Garmin accounts being merged. The raw account identifier, email address, and Garmin profile response are not saved. Update-check metadata contains only a timestamp and validated public Git commit IDs. It contains no Garmin account or activity data.
 
-The activity allowlist contains Garmin activity ID, optional activity name, original type key, local start time and date, duration, moving duration, distance, elevation gain, energy, average and maximum heart rate, average speed, average power, total sets, and total repetitions. Activity names, identifiers, and start times are excluded from summary schema version 1. Separate bounded list and detail responses expose only the fields needed for an explicit local drill-down. Coordinates, routes, maps, raw responses, complete URLs, and complete profile data are not persisted or returned by those contracts.
+The activity allowlist contains Garmin activity ID, optional activity name, original type key, local start time and date, duration, moving duration, distance, elevation gain, energy, average and maximum heart rate, average speed, average power, total sets, and total repetitions. Activity names, identifiers, type strings, and start times are excluded from the activity-trends cache; summary schema version 1 also excludes names, identifiers, and start times. Separate bounded list and detail responses expose only the fields needed for an explicit local drill-down. Coordinates, routes, maps, raw responses, complete URLs, and complete profile data are not persisted or returned by those contracts.
 
 See [SECURITY.md](SECURITY.md) for reporting instructions and the complete security boundary.
 
@@ -257,7 +260,7 @@ To disconnect while retaining local activity data, run the [backend command setu
 backend auth logout --confirm
 ```
 
-To delete known Garmin tokens, account scope, activities, and summary data:
+To delete known Garmin tokens, account scope, activities, summary data, and activity trends:
 
 ```bash
 backend auth purge --confirm
@@ -406,6 +409,14 @@ Every metric has a `contributingActivityCount`. A metric is `null` when no activ
 
 The cache is limited to 20,000 activities, 256 original activity type keys, and 1 MiB of JSON. Measurements remain in SI units until the QML presentation boundary.
 
+## Activity-trends contract
+
+Activity-trends schema version 1 is a separate optional cache generated from the same normalized 90-day SQLite snapshot after reconciliation. It makes no additional Garmin request. The 7- and 30-day periods contain daily points. The 90-day period contains one six-day oldest bucket followed by twelve seven-day buckets, all anchored to the summary's local end date.
+
+Each point contains only its calendar boundaries, partial-current-period marker, activity count, and summed duration, distance, elevation, and energy with contributor counts. It contains no activity identifiers, names, start times, type strings, routes, coordinates, or raw responses. A day or bucket with no activities is an explicit zero. If activities exist but none supplied a metric, that metric remains `null`. QML validates the complete shape and displays trends only when their generation timestamp, dates, and activity counts match the current summary. Missing, stale, malformed, oversized, or unwritable trends do not replace or hide a valid summary.
+
+The trend cache is capped at 50 points and 64 KiB, written atomically with mode `0600`, and removed by explicit purge. Measurements remain in SI units. The current panel charts duration only; distance, elevation, and energy remain exact values rather than additional chart controls.
+
 ## Activity drill-down contracts
 
 `activities list` accepts one reviewed period key, the summary's local end date, an optional original type key, and a page offset. It returns newest-first local records in fixed pages of at most 20, with `hasMore` and a bounded next offset. Older summary dates are marked stale. `activities detail` accepts only a canonical decimal activity ID and returns either the complete allowlisted local record or `{\"found\":false,\"activity\":null}` if reconciliation removed it.
@@ -438,6 +449,7 @@ omarchy plugin validate "$PLUGIN_DIR"
 /usr/lib/qt6/bin/qmllint -I "$OMARCHY_PATH/shell" \
   "$PLUGIN_DIR/BarWidget.qml" \
   "$PLUGIN_DIR/Panel.qml" \
+  "$PLUGIN_DIR/ActivityTimeChart.qml" \
   "$PLUGIN_DIR/Service.qml"
 ```
 

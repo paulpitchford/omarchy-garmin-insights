@@ -22,6 +22,7 @@ from omarchy_garmin.summary import (
     SummaryDataError,
     SummaryStorageError,
 )
+from omarchy_garmin.trends import ActivityTrendsDataError, ActivityTrendsStorageError
 
 INCREMENTAL_DAYS = 7
 FULL_RECONCILIATION_DAYS = 90
@@ -101,8 +102,8 @@ class ActivityRepositoryOperations(Protocol):
         ...
 
 
-class SummaryOperations(Protocol):
-    """Bounded display-cache operation required after reconciliation."""
+class DisplayCacheOperations(Protocol):
+    """One bounded display-cache operation run after reconciliation."""
 
     def write(
         self,
@@ -111,7 +112,7 @@ class SummaryOperations(Protocol):
         as_of_date: date,
         generated_at: datetime,
     ) -> None:
-        """Atomically replace the summary cache from a complete snapshot."""
+        """Atomically replace a display cache from a complete snapshot."""
         ...
 
 
@@ -132,6 +133,7 @@ class RefreshResult:
     end_date: date
     fetched_count: int
     deleted_count: int
+    trends_updated: bool
 
 
 class RefreshOperations(Protocol):
@@ -152,7 +154,8 @@ class ActivitySyncService:
         auth_store: AuthStore,
         gateway: ActivityGateway,
         repository: ActivityRepositoryOperations,
-        summary: SummaryOperations,
+        summary: DisplayCacheOperations,
+        trends: DisplayCacheOperations,
         today: Callable[[], date] = date.today,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
@@ -162,6 +165,7 @@ class ActivitySyncService:
         self._gateway = gateway
         self._repository = repository
         self._summary = summary
+        self._trends = trends
         self._today = today
         self._now = now
 
@@ -226,10 +230,24 @@ class ActivitySyncService:
             raise ActivityDataError("activity summary data is invalid") from error
         except SummaryStorageError as error:
             raise ActivityStorageError("activity summary cache could not be written") from error
+
+        trends_updated = True
+        try:
+            self._trends.write(
+                snapshot,
+                as_of_date=today,
+                generated_at=completed_at,
+            )
+        except (ActivityTrendsDataError, ActivityTrendsStorageError):
+            # Trends are an optional presentation cache. The returned flag makes
+            # degraded generation observable while the valid primary summary and
+            # any previous matching trend cache remain available.
+            trends_updated = False
         return RefreshResult(
             mode="full" if full else "incremental",
             start_date=start_date,
             end_date=today,
             fetched_count=result.stored_count,
             deleted_count=result.deleted_count,
+            trends_updated=trends_updated,
         )
