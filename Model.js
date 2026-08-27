@@ -270,7 +270,7 @@ function parseDisplayCacheEnvelope(raw, expectedKind) {
   if (maxContent === 0) return { ok: false, error: "invalid_kind" }
 
   var text = String(raw || "")
-  if (text.length === 0) return { ok: false, error: "missing" }
+  if (text.length === 0) return { ok: false, error: "invalid_envelope" }
   if (text.length > maxContent * 2 + 4096) return { ok: false, error: "too_large" }
 
   var envelope

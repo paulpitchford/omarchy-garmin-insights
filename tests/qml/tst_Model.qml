@@ -95,6 +95,13 @@ TestCase {
     compare(trendResult.trends.periods[2].points.length, 13)
   }
 
+  function test_display_cache_envelope_rejects_empty_backend_output() {
+    var result = Model.parseDisplayCacheEnvelope("", "summary")
+
+    verify(!result.ok)
+    compare(result.error, "invalid_envelope")
+  }
+
   function test_display_cache_envelope_rejects_mismatch_and_unexpected_fields() {
     var envelope = displayCacheEnvelope(
       "activity-trends", JSON.stringify(Model.syntheticActivityTrends(
