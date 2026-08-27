@@ -9,6 +9,12 @@ var PERIOD_DAYS = [1, 7, 30, 90]
 var UPDATE_REPOSITORY_URL = "https://github.com/paulpitchford/omarchy-garmin-insights.git"
 var UPDATE_DEFAULT_BRANCH_REF = "refs/heads/main"
 var PLUGIN_ID = "io.github.paulpitchford.garmin-insights"
+var RECOVERY_HEARTBEAT_INTERVAL_MS = 15000
+var RECOVERY_SUSPEND_GAP_MS = 45000
+var RECOVERY_TIMER_OVERRUN_TOLERANCE_MS = 5000
+var RESUME_RECOVERY_DELAY_MS = 15000
+var RECOVERY_BUSY_DELAY_MS = 5000
+var OFFLINE_RECOVERY_DELAYS_MS = [30000, 120000]
 
 var METRIC_KEYS = [
   "durationSeconds",
@@ -524,6 +530,38 @@ function failureKindForCode(code) {
     return "reconnect"
   if (value === "refresh_in_progress") return ""
   return "local"
+}
+
+function suspendGapDetected(previousTickMs, currentTickMs) {
+  return typeof previousTickMs === "number" && isFinite(previousTickMs) && previousTickMs > 0
+    && typeof currentTickMs === "number" && isFinite(currentTickMs)
+    && currentTickMs >= previousTickMs
+    && currentTickMs - previousTickMs >= RECOVERY_SUSPEND_GAP_MS
+}
+
+function timerOverrunDetected(armedAtMs, currentMs, intervalMs) {
+  return typeof armedAtMs === "number" && isFinite(armedAtMs) && armedAtMs > 0
+    && typeof currentMs === "number" && isFinite(currentMs) && currentMs >= armedAtMs
+    && typeof intervalMs === "number" && isFinite(intervalMs) && intervalMs > 0
+    && currentMs - armedAtMs >= intervalMs + RECOVERY_TIMER_OVERRUN_TOLERANCE_MS
+}
+
+function recoveryTransition(retryCount, resultKind) {
+  if (resultKind !== "offline" || !isInteger(retryCount))
+    return { active: false, retryCount: 0, delayMs: -1 }
+  if (retryCount >= OFFLINE_RECOVERY_DELAYS_MS.length)
+    return { active: false, retryCount: 0, delayMs: -1 }
+  return {
+    active: true,
+    retryCount: retryCount + 1,
+    delayMs: OFFLINE_RECOVERY_DELAYS_MS[retryCount]
+  }
+}
+
+function refreshOrigin(requestedOrigin, recoveryPending) {
+  var origin = requestedOrigin === "scheduled" || requestedOrigin === "authentication"
+    || requestedOrigin === "recovery" ? requestedOrigin : "manual"
+  return origin === "manual" && recoveryPending ? "recovery" : origin
 }
 
 function connectionState(options) {

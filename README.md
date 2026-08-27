@@ -24,7 +24,7 @@ These screenshots use the plugin's built-in synthetic demo. They contain no data
 - Breaks totals down by Garmin's original activity type, including types the plugin does not already know.
 - Supports metric, imperial, or locale-selected units.
 - Keeps a rolling 90-day local database and a smaller summary cache for the interface.
-- Refreshes every 30 minutes by default and continues showing the last valid summary while offline.
+- Refreshes every 30 minutes by default, keeps the last valid summary while offline, and makes bounded recovery attempts after resume or a connectivity failure.
 - Checks supported Git-managed installs for updates at most once per 24 hours and opens Omarchy's review flow on request.
 - Uses a visible terminal for Garmin login and supports MFA in the same login process.
 - Works on horizontal and vertical bars and shares one refresh service across monitors.
@@ -374,7 +374,9 @@ If a different Garmin account reports `account_mismatch`, the retained data belo
 
 The plugin keeps the last valid cache after network failures, rate limiting, malformed Garmin data, an interrupted database update, or an interrupted cache write. It marks the summary stale rather than replacing missing measurements with zero.
 
-Middle-click the widget or press `R` in the panel to retry. Only one refresh can run at a time. A refresh has a 120-second overall Garmin request deadline and at most one retry for transient network or server failures.
+After a suspend-length timer gap, the shared service waits 15 seconds for networking to settle before making a normal refresh. An offline or remote-service result can then schedule at most two more refresh commands, after 30 seconds and two minutes. A successful refresh clears the offline state. Authentication expiry, rate limiting, and local storage failures do not use this recovery sequence. The plugin does not run a generic internet probe or add a connectivity-tracking service.
+
+Middle-click the widget or press `R` in the panel to retry immediately; a manual refresh uses any already pending recovery attempt rather than starting an overlapping request. Only one refresh can run at a time. Each backend refresh has a 120-second overall Garmin request deadline and at most one retry for transient network or server failures.
 
 ### No cached summary
 

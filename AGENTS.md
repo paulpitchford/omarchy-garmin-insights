@@ -28,7 +28,7 @@ Keep this file current when architecture, security boundaries, development comma
 
 Use these boundaries unless an approved design change updates this file:
 
-1. `Service.qml` is the singleton owner of scheduling, process state, cached summaries, and errors.
+1. `Service.qml` is the singleton owner of scheduling, process state, cached summaries, errors, and bounded suspend/connectivity recovery.
 2. `BarWidget.qml` and its nested `Panel.qml` render state from the singleton service. They do not authenticate, query Garmin, or aggregate activities.
 3. The Python backend is a short-lived command. There is no persistent Python daemon or systemd service.
 4. Python owns authentication, Garmin requests, validation, SQLite, aggregation, display JSON generation, and private update-cadence metadata.
@@ -106,7 +106,7 @@ The initially reviewed skill revision is `5202c854f211dff8f5255fa78691c193c8b26a
 - Do not use broad `except Exception` blocks except at a top-level boundary that logs a safe classification and exits predictably.
 - Do not use `shell=True`, dynamic evaluation, or command strings for ordinary subprocesses.
 - Keep stdout machine-readable for commands used by QML. Send concise diagnostics to stderr and never include secrets or raw responses.
-- Bound network retries. Activity refreshes use at most one retry for transient network or server failures and a 120-second overall Garmin request deadline. Authentication errors and HTTP 429 responses fail without retry.
+- Bound network retries. Each backend activity refresh uses at most one retry for transient network or server failures and a 120-second overall Garmin request deadline. Authentication errors and HTTP 429 responses fail without retry. After an offline result, the QML singleton may run at most two additional normal refresh commands at fixed delays; successful, authentication, rate-limit, and local-error results cancel that sequence.
 - Make refresh, upsert, reconciliation, logout, and purge behaviour idempotent.
 
 ## Python tooling and dependencies
@@ -133,7 +133,7 @@ Use Ruff for formatting and linting, mypy in strict mode for static typing, pyte
 - Use one service instance to prevent duplicate Garmin requests on multi-monitor setups.
 - Run background processes with direct argument arrays and fixed executable paths.
 - Update awareness may query only `https://github.com/paulpitchford/omarchy-garmin-insights.git` and `refs/heads/main` with `/usr/bin/git`. It must validate the supported install path, branch, origin, local and remote commits, 24-hour cadence, output bounds, deadline, and no-overlap guard. It never updates the checkout itself.
-- Apply process deadlines and bounded output collection. Prevent overlapping refreshes.
+- Apply process deadlines and bounded output collection. Prevent overlapping refreshes. Detect a suspend-length wall-clock timer gap in the singleton and delay the first recovery refresh briefly so network reconnection can settle; do not add a connectivity service or generic internet probe.
 - Keep authentication in a terminal. Never build password or MFA controls inside the long-lived shell.
 - Use Omarchy's `qs.Commons` and `qs.Ui` components, theme colours, spacing, typography, panel coordination, keyboard handling, and accessibility patterns.
 - Support horizontal and vertical bars unless a documented limitation is approved.

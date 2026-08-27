@@ -44,6 +44,11 @@ Item {
   property bool updateManual: false
   property string localCommit: ""
   property string remoteCommit: ""
+  property bool recoveryActive: false
+  property int recoveryRetryCount: 0
+  property double recoveryHeartbeatMs: Date.now()
+
+  readonly property bool recoveryPending: recoveryTimer.running
 
   readonly property string sourceDir: manifest && manifest.__sourceDir ? String(manifest.__sourceDir) : ""
   readonly property string homeDir: Quickshell.env("HOME")
@@ -122,6 +127,7 @@ Item {
       activityListProcess.running = false
       activityDetailProcess.running = false
       refreshing = false
+      stopRecovery()
       failureKind = ""
       failureCode = ""
     } else if (!demoMode && uvPath === "" && !uvProbe.running) {
@@ -357,13 +363,60 @@ Item {
     statusDeadline.restart()
   }
 
-  function refresh() {
-    if (demoMode) {
-      nowMs = Date.now()
+  function stopRecovery() {
+    recoveryTimer.stop()
+    recoveryActive = false
+    recoveryRetryCount = 0
+  }
+
+  function scheduleRecovery(delayMs) {
+    recoveryActive = true
+    recoveryTimer.interval = delayMs
+    recoveryTimer.armedAtMs = Date.now()
+    recoveryTimer.restart()
+  }
+
+  function applyRecoveryResult(resultKind) {
+    recoveryTimer.stop()
+    var transition = Model.recoveryTransition(recoveryRetryCount, resultKind)
+    recoveryActive = transition.active
+    recoveryRetryCount = transition.retryCount
+    if (transition.delayMs >= 0) scheduleRecovery(transition.delayMs)
+  }
+
+  function beginResumeRecovery() {
+    if (demoMode || !backendReady || !configured) return
+    if (!recoveryActive) {
+      recoveryActive = true
+      recoveryRetryCount = 0
+    }
+    if (!refreshProcess.running) scheduleRecovery(Model.RESUME_RECOVERY_DELAY_MS)
+  }
+
+  function runRecoveryAttempt() {
+    if (!recoveryActive) return
+    if (demoMode || !backendReady || !configured) {
+      stopRecovery()
       return
     }
+    if (authStatusProcess.running || refreshProcess.running || activityViewRunning) {
+      scheduleRecovery(Model.RECOVERY_BUSY_DELAY_MS)
+      return
+    }
+    refresh("recovery")
+  }
+
+  function refresh(requestedOrigin) {
+    var origin = Model.refreshOrigin(requestedOrigin, recoveryTimer.running)
+    if (demoMode) {
+      stopRecovery()
+      nowMs = Date.now()
+      return true
+    }
     if (!backendReady || !configured || authStatusProcess.running || refreshProcess.running
-        || activityViewRunning) return
+        || activityViewRunning || (origin === "scheduled" && recoveryActive)) return false
+    if (origin === "recovery") recoveryTimer.stop()
+    else stopRecovery()
     failureKind = ""
     failureCode = ""
     refreshing = true
@@ -371,6 +424,7 @@ Item {
     refreshProcess.command = backendCommand(["refresh", "--json"])
     refreshProcess.running = true
     refreshDeadline.restart()
+    return true
   }
 
   function periodAllowsType(period, typeKey) {
@@ -479,11 +533,13 @@ Item {
     var envelope = parseEnvelope(raw, "auth.status")
     if (statusTimedOut || !envelope) {
       backendReady = false
+      stopRecovery()
       return
     }
     backendReady = true
     if (exitCode !== 0 || !envelope.ok || !envelope.data || typeof envelope.data.configured !== "boolean") {
       safeFailure(envelope && envelope.error ? envelope.error.code : "internal_error")
+      stopRecovery()
       return
     }
 
@@ -495,8 +551,8 @@ Item {
     if (configured) {
       authPollTimer.stop()
       authPollTicks = 0
-      refresh()
-    }
+      refresh("authentication")
+    } else stopRecovery()
   }
 
   function handleRefresh(exitCode, raw) {
@@ -505,16 +561,19 @@ Item {
     if (refreshTimedOut) {
       failureKind = "offline"
       failureCode = "request_timeout"
+      applyRecoveryResult(failureKind)
       return
     }
     if (!envelope) {
       backendReady = false
       failureKind = "local"
       failureCode = "backend_unavailable"
+      applyRecoveryResult(failureKind)
       return
     }
     if (exitCode !== 0 || envelope.ok !== true) {
       safeFailure(envelope.error ? envelope.error.code : "internal_error")
+      applyRecoveryResult(failureKind)
       return
     }
     backendReady = true
@@ -522,6 +581,7 @@ Item {
     verified = true
     failureKind = ""
     failureCode = ""
+    applyRecoveryResult("success")
     refreshGeneration++
     summaryFile.reload()
   }
@@ -643,6 +703,7 @@ Item {
       } else {
         root.cacheRootReady = false
         root.backendReady = false
+        root.stopRecovery()
         root.failureKind = "local"
         root.failureCode = "local_storage_error"
       }
@@ -772,18 +833,46 @@ Item {
   }
 
   Timer {
-    id: refreshTimer
-    interval: root.refreshMinutes * 60000
-    repeat: true
-    running: !root.demoMode
-    onTriggered: root.refresh()
+    id: recoveryTimer
+    property double armedAtMs: 0
+    interval: Model.RESUME_RECOVERY_DELAY_MS
+    onTriggered: {
+      var currentMs = Date.now()
+      if (Model.timerOverrunDetected(armedAtMs, currentMs, interval)) {
+        root.recoveryHeartbeatMs = currentMs
+        root.scheduleRecovery(Model.RESUME_RECOVERY_DELAY_MS)
+      } else root.runRecoveryAttempt()
+    }
   }
 
   Timer {
-    interval: 60000
+    id: refreshTimer
+    property double armedAtMs: Date.now()
+    interval: root.refreshMinutes * 60000
+    repeat: true
+    running: !root.demoMode
+    onIntervalChanged: armedAtMs = Date.now()
+    onRunningChanged: if (running) armedAtMs = Date.now()
+    onTriggered: {
+      var currentMs = Date.now()
+      var overranDuringSuspend = Model.timerOverrunDetected(armedAtMs, currentMs, interval)
+      armedAtMs = currentMs
+      if (overranDuringSuspend) root.beginResumeRecovery()
+      else root.refresh("scheduled")
+    }
+  }
+
+  Timer {
+    interval: Model.RECOVERY_HEARTBEAT_INTERVAL_MS
     repeat: true
     running: true
-    onTriggered: root.nowMs = Date.now()
+    onTriggered: {
+      var currentMs = Date.now()
+      if (Model.suspendGapDetected(root.recoveryHeartbeatMs, currentMs))
+        root.beginResumeRecovery()
+      root.recoveryHeartbeatMs = currentMs
+      root.nowMs = currentMs
+    }
   }
 
   Timer {

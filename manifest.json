@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.paulpitchford.garmin-insights",
   "name": "Garmin Insights",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "Paul Pitchford",
   "license": "MIT",
   "description": "Recent Garmin Connect activity summaries in the Omarchy bar.",
