@@ -264,6 +264,48 @@ function parseActivityTrends(raw) {
   }
 }
 
+function parseDisplayCacheEnvelope(raw, expectedKind) {
+  var maxContent = expectedKind === "summary" ? MAX_SUMMARY_CHARS
+    : expectedKind === "activity-trends" ? MAX_ACTIVITY_TRENDS_CHARS : 0
+  if (maxContent === 0) return { ok: false, error: "invalid_kind" }
+
+  var text = String(raw || "")
+  if (text.length === 0) return { ok: false, error: "invalid_envelope" }
+  if (text.length > maxContent * 2 + 4096) return { ok: false, error: "too_large" }
+
+  var envelope
+  try {
+    envelope = JSON.parse(text)
+  } catch (error) {
+    return { ok: false, error: "invalid_json" }
+  }
+  if (!hasOnlyKeys(envelope, ["schemaVersion", "command", "ok", "data", "error"])
+      || envelope.schemaVersion !== 1 || envelope.command !== "cache.read"
+      || typeof envelope.ok !== "boolean") return { ok: false, error: "invalid_envelope" }
+  if (!envelope.ok) {
+    if (envelope.data !== null || !hasOnlyKeys(envelope.error, ["code", "message"])
+        || ["cache_missing", "local_storage_error"].indexOf(envelope.error.code) === -1)
+      return { ok: false, error: "invalid_envelope" }
+    return { ok: false, error: envelope.error.code }
+  }
+  if (envelope.error !== null || !hasOnlyKeys(envelope.data, ["kind", "content"])
+      || envelope.data.kind !== expectedKind || typeof envelope.data.content !== "string"
+      || envelope.data.content.length > maxContent)
+    return { ok: false, error: "invalid_envelope" }
+
+  var result = expectedKind === "summary"
+    ? parseSummary(envelope.data.content) : parseActivityTrends(envelope.data.content)
+  result.kind = expectedKind
+  return result
+}
+
+function summaryCacheReadError(hasSummary, currentError, resultError) {
+  if (resultError === "cache_missing")
+    return hasSummary ? String(currentError || "") : "missing"
+  return typeof resultError === "string" && resultError !== ""
+    ? resultError : "local_storage_error"
+}
+
 function trendMetricMatchesSummary(period, summaryMetric, key) {
   var contributors = 0
   var total = 0

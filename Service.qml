@@ -24,6 +24,10 @@ Item {
   property int authPollTicks: 0
   property bool statusTimedOut: false
   property bool refreshTimedOut: false
+  property bool summaryCacheTimedOut: false
+  property bool activityTrendsCacheTimedOut: false
+  property bool summaryCacheReloadPending: false
+  property bool activityTrendsCacheReloadPending: false
   property var activityPage: null
   property var activityDetail: null
   property string activityViewError: ""
@@ -72,8 +76,6 @@ Item {
     SSH_ASKPASS: "/usr/bin/false",
     XDG_CONFIG_HOME: "/nonexistent"
   })
-  readonly property string summaryPath: applicationCacheRoot + "/summary.json"
-  readonly property string activityTrendsPath: applicationCacheRoot + "/activity-trends.json"
   readonly property string pythonEnvironmentPath: applicationCacheRoot + "/uv-environment"
   readonly property var summary: demoMode ? Model.syntheticSummary(nowMs) : cachedSummary
   readonly property var candidateActivityTrends: demoMode
@@ -103,8 +105,11 @@ Item {
   readonly property bool activityViewRunning: activityListProcess.running || activityDetailProcess.running
   readonly property bool updateCheckRunning: updateStage !== "" || updateHelperProcess.running
     || updateGitProcess.running
+  readonly property bool displayCacheRunning: summaryCacheProcess.running
+    || activityTrendsCacheProcess.running
   readonly property bool processRunning: uvProbe.running || cacheRootProcess.running
     || authStatusProcess.running || refreshProcess.running || activityViewRunning
+    || displayCacheRunning
 
   function absoluteEnvironmentPath(name, fallback) {
     var value = String(Quickshell.env(name) || "")
@@ -130,6 +135,12 @@ Item {
       refreshProcess.running = false
       activityListProcess.running = false
       activityDetailProcess.running = false
+      summaryCacheProcess.running = false
+      activityTrendsCacheProcess.running = false
+      summaryCacheDeadline.stop()
+      activityTrendsCacheDeadline.stop()
+      summaryCacheReloadPending = false
+      activityTrendsCacheReloadPending = false
       refreshing = false
       stopRecovery()
       failureKind = ""
@@ -139,6 +150,7 @@ Item {
     } else if (!demoMode && !cacheRootReady) {
       prepareCacheRoot()
     } else if (demoChanged && !demoMode) {
+      requestDisplayCacheReload()
       checkAuthentication()
     }
   }
@@ -343,6 +355,41 @@ Item {
 
   function backendCommand(extraArguments) {
     return Model.backendCommand(uvPath, sourceDir, pythonEnvironmentPath, extraArguments)
+  }
+
+  function requestSummaryCacheReload() {
+    if (demoMode || !cacheRootReady || uvPath === "" || sourceDir === "") return
+    if (summaryCacheProcess.running) {
+      summaryCacheReloadPending = true
+      return
+    }
+    summaryCacheReloadPending = false
+    summaryCacheTimedOut = false
+    summaryCacheProcess.command = backendCommand([
+      "cache", "read", "--json", "--kind", "summary"
+    ])
+    summaryCacheProcess.running = true
+    summaryCacheDeadline.restart()
+  }
+
+  function requestActivityTrendsCacheReload() {
+    if (demoMode || !cacheRootReady || uvPath === "" || sourceDir === "") return
+    if (activityTrendsCacheProcess.running) {
+      activityTrendsCacheReloadPending = true
+      return
+    }
+    activityTrendsCacheReloadPending = false
+    activityTrendsCacheTimedOut = false
+    activityTrendsCacheProcess.command = backendCommand([
+      "cache", "read", "--json", "--kind", "activity-trends"
+    ])
+    activityTrendsCacheProcess.running = true
+    activityTrendsCacheDeadline.restart()
+  }
+
+  function requestDisplayCacheReload() {
+    requestSummaryCacheReload()
+    requestActivityTrendsCacheReload()
   }
 
   function prepareCacheRoot() {
@@ -587,8 +634,39 @@ Item {
     failureCode = ""
     applyRecoveryResult("success")
     refreshGeneration++
-    summaryFile.reload()
-    activityTrendsFile.reload()
+    requestDisplayCacheReload()
+  }
+
+  function handleSummaryCache(exitCode, raw) {
+    summaryCacheDeadline.stop()
+    var result = summaryCacheTimedOut
+      ? { ok: false, error: "timeout" }
+      : Model.parseDisplayCacheEnvelope(raw, "summary")
+    if (exitCode === 0 && result.ok) {
+      cachedSummary = result.summary
+      cacheError = ""
+    } else cacheError = Model.summaryCacheReadError(
+      cachedSummary !== null, cacheError, result.error)
+    nowMs = Date.now()
+    if (summaryCacheReloadPending) {
+      summaryCacheReloadPending = false
+      requestSummaryCacheReload()
+    }
+  }
+
+  function handleActivityTrendsCache(exitCode, raw) {
+    activityTrendsCacheDeadline.stop()
+    var result = activityTrendsCacheTimedOut
+      ? { ok: false, error: "timeout" }
+      : Model.parseDisplayCacheEnvelope(raw, "activity-trends")
+    if (exitCode === 0 && result.ok) {
+      cachedActivityTrends = result.trends
+      activityTrendsCacheError = ""
+    } else activityTrendsCacheError = result.error || "local_storage_error"
+    if (activityTrendsCacheReloadPending) {
+      activityTrendsCacheReloadPending = false
+      requestActivityTrendsCacheReload()
+    }
   }
 
   function handleActivityList(exitCode, raw) {
@@ -655,47 +733,6 @@ Item {
     authPollTimer.start()
   }
 
-  FileView {
-    id: summaryFile
-    path: root.summaryPath
-    watchChanges: true
-    printErrors: false
-    onFileChanged: reload()
-    onLoaded: {
-      var result = Model.parseSummary(text())
-      if (result.ok) {
-        root.cachedSummary = result.summary
-        root.cacheError = ""
-      } else {
-        root.cacheError = result.error
-      }
-      root.nowMs = Date.now()
-    }
-    onLoadFailed: {
-      if (root.cachedSummary === null) root.cacheError = "missing"
-    }
-  }
-
-  FileView {
-    id: activityTrendsFile
-    path: root.activityTrendsPath
-    watchChanges: true
-    printErrors: false
-    onFileChanged: reload()
-    onLoaded: {
-      var result = Model.parseActivityTrends(text())
-      if (result.ok) {
-        root.cachedActivityTrends = result.trends
-        root.activityTrendsCacheError = ""
-      } else {
-        root.activityTrendsCacheError = result.error
-      }
-    }
-    onLoadFailed: {
-      if (root.cachedActivityTrends === null) root.activityTrendsCacheError = "missing"
-    }
-  }
-
   Process {
     id: uvProbe
     property int candidateIndex: 0
@@ -724,6 +761,7 @@ Item {
         root.cacheRootReady = true
         root.failureKind = ""
         root.failureCode = ""
+        root.requestDisplayCacheReload()
         root.checkAuthentication()
       } else {
         root.cacheRootReady = false
@@ -752,6 +790,24 @@ Item {
     onExited: function(exitCode) {
       refreshDeadline.stop()
       root.handleRefresh(exitCode, refreshStdout.text)
+    }
+  }
+
+  Process {
+    id: summaryCacheProcess
+    command: []
+    stdout: StdioCollector { id: summaryCacheStdout; waitForEnd: true }
+    onExited: function(exitCode) {
+      root.handleSummaryCache(exitCode, summaryCacheStdout.text)
+    }
+  }
+
+  Process {
+    id: activityTrendsCacheProcess
+    command: []
+    stdout: StdioCollector { id: activityTrendsCacheStdout; waitForEnd: true }
+    onExited: function(exitCode) {
+      root.handleActivityTrendsCache(exitCode, activityTrendsCacheStdout.text)
     }
   }
 
@@ -817,6 +873,24 @@ Item {
     onTriggered: {
       root.refreshTimedOut = true
       refreshProcess.running = false
+    }
+  }
+
+  Timer {
+    id: summaryCacheDeadline
+    interval: 5000
+    onTriggered: {
+      root.summaryCacheTimedOut = true
+      summaryCacheProcess.running = false
+    }
+  }
+
+  Timer {
+    id: activityTrendsCacheDeadline
+    interval: 5000
+    onTriggered: {
+      root.activityTrendsCacheTimedOut = true
+      activityTrendsCacheProcess.running = false
     }
   }
 

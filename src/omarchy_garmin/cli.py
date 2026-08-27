@@ -43,6 +43,15 @@ from omarchy_garmin.auth import (
     InteractiveTerminalRequiredError,
     InvalidAuthResponseError,
 )
+from omarchy_garmin.display_cache import (
+    DisplayCacheDataError,
+    DisplayCacheError,
+    DisplayCacheKind,
+    DisplayCacheMissingError,
+    DisplayCacheOperations,
+    DisplayCacheReader,
+    display_cache_output_limit,
+)
 from omarchy_garmin.errors import ERROR_SPECS, CommandError, ErrorCode, ExitStatus
 from omarchy_garmin.paths import AppPaths
 from omarchy_garmin.prompts import TerminalCredentialProvider
@@ -115,6 +124,16 @@ def _build_parser() -> argparse.ArgumentParser:
     activity_detail = activity_subparsers.add_parser("detail")
     activity_detail.add_argument("--json", action="store_true", dest="as_json")
     activity_detail.add_argument("--activity-id", required=True, type=_activity_id_argument)
+
+    cache = subparsers.add_parser("cache", help="read bounded local display caches")
+    cache_subparsers = cache.add_subparsers(
+        dest="cache_command", required=True, parser_class=_ArgumentParser
+    )
+    cache_read = cache_subparsers.add_parser("read")
+    cache_read.add_argument("--json", action="store_true", dest="as_json")
+    cache_read.add_argument(
+        "--kind", required=True, choices=tuple(kind.value for kind in DisplayCacheKind)
+    )
     return parser
 
 
@@ -235,6 +254,11 @@ def _default_activity_view_operations(paths: AppPaths) -> ActivityViewOperations
     from omarchy_garmin.database import ActivityRepository
 
     return ActivityViewService(ActivityRepository(paths.activity_database))
+
+
+def _default_display_cache_operations(paths: AppPaths) -> DisplayCacheOperations:
+    """Build the hardened display-cache reader at the composition root."""
+    return DisplayCacheReader(paths)
 
 
 def _default_refresh_operations(paths: AppPaths) -> RefreshOperations:
@@ -402,6 +426,28 @@ def _run_activity_view(
     return int(ExitStatus.SUCCESS)
 
 
+def _run_display_cache(
+    arguments: argparse.Namespace,
+    *,
+    paths: AppPaths,
+    stdout: TextIO,
+    operations: DisplayCacheOperations | None,
+) -> int:
+    """Read one display cache through the hardened storage boundary."""
+    kind = DisplayCacheKind(arguments.kind)
+    reader = operations or _default_display_cache_operations(paths)
+    content = reader.read(kind)
+    if arguments.as_json:
+        payload = _success_payload("cache.read", {"kind": kind.value, "content": content})
+        serialized = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+        if len(serialized.encode()) + 1 > display_cache_output_limit(kind):
+            raise DisplayCacheDataError("display cache response exceeds the output bound")
+        stdout.write(serialized + "\n")
+    else:
+        stdout.write(f"{kind.value} display cache is available.\n")
+    return int(ExitStatus.SUCCESS)
+
+
 def _requested_command(argv: Sequence[str]) -> str | None:
     """Return only a recognized command name for public error output."""
     if argv and argv[0] in {"doctor", "refresh"}:
@@ -410,6 +456,8 @@ def _requested_command(argv: Sequence[str]) -> str | None:
         return f"auth.{argv[1]}"
     if len(argv) > 1 and argv[0] == "activities" and argv[1] in {"list", "detail"}:
         return f"activities.{argv[1]}"
+    if len(argv) > 1 and argv[0] == "cache" and argv[1] == "read":
+        return "cache.read"
     return None
 
 
@@ -508,6 +556,7 @@ def _dispatch_command(
     auth_operations: AuthOperations | None,
     refresh_operations: RefreshOperations | None,
     activity_view_operations: ActivityViewOperations | None,
+    display_cache_operations: DisplayCacheOperations | None,
 ) -> int:
     """Dispatch one parsed command to its explicit operation boundary."""
     if arguments.command == "doctor":
@@ -540,6 +589,13 @@ def _dispatch_command(
             stdout=stdout,
             operations=activity_view_operations,
         )
+    if arguments.command == "cache":
+        return _run_display_cache(
+            arguments,
+            paths=paths,
+            stdout=stdout,
+            operations=display_cache_operations,
+        )
     raise AssertionError(f"unhandled command: {arguments.command}")  # pragma: no cover
 
 
@@ -554,6 +610,7 @@ def run(
     auth_operations: AuthOperations | None = None,
     refresh_operations: RefreshOperations | None = None,
     activity_view_operations: ActivityViewOperations | None = None,
+    display_cache_operations: DisplayCacheOperations | None = None,
 ) -> int:
     """Run the CLI with explicit process boundaries for deterministic testing.
 
@@ -567,6 +624,7 @@ def run(
         auth_operations: Optional injected authentication boundary for tests.
         refresh_operations: Optional injected activity-refresh boundary for tests.
         activity_view_operations: Optional injected local activity-view boundary for tests.
+        display_cache_operations: Optional injected hardened cache-read boundary for tests.
 
     Returns:
         A process exit status.
@@ -585,6 +643,7 @@ def run(
             auth_operations=auth_operations,
             refresh_operations=refresh_operations,
             activity_view_operations=activity_view_operations,
+            display_cache_operations=display_cache_operations,
         )
     except CommandError as error:
         return _write_error(
@@ -622,6 +681,15 @@ def run(
             command=command,
             as_json=as_json,
             code=code,
+        )
+    except DisplayCacheError as error:
+        code = (
+            ErrorCode.CACHE_MISSING
+            if isinstance(error, DisplayCacheMissingError)
+            else ErrorCode.LOCAL_STORAGE_ERROR
+        )
+        return _write_error(
+            stdout=stdout, stderr=stderr, command=command, as_json=as_json, code=code
         )
     except Exception:  # noqa: BLE001 - final process boundary returns a fixed, redacted failure
         return _write_error(

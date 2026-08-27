@@ -36,6 +36,7 @@ class ErrorCode(StrEnum):
     RATE_LIMITED = "rate_limited"
     REMOTE_SERVICE_ERROR = "remote_service_error"
     INVALID_REMOTE_DATA = "invalid_remote_data"
+    CACHE_MISSING = "cache_missing"
     LOCAL_STORAGE_ERROR = "local_storage_error"
     REFRESH_IN_PROGRESS = "refresh_in_progress"
     INTERNAL_ERROR = "internal_error"
@@ -82,6 +83,9 @@ ERROR_SPECS: Final[Mapping[ErrorCode, ErrorSpec]] = MappingProxyType(
         ),
         ErrorCode.INVALID_REMOTE_DATA: ErrorSpec(
             ExitStatus.DATA_ERROR, "Garmin Connect returned invalid activity data."
+        ),
+        ErrorCode.CACHE_MISSING: ErrorSpec(
+            ExitStatus.STORAGE_ERROR, "The requested display cache does not exist."
         ),
         ErrorCode.LOCAL_STORAGE_ERROR: ErrorSpec(
             ExitStatus.STORAGE_ERROR, "Local Garmin activity storage failed."

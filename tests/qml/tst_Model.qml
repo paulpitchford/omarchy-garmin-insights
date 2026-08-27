@@ -5,6 +5,16 @@ import "../../Model.js" as Model
 TestCase {
   name: "GarminSummaryModel"
 
+  function displayCacheEnvelope(kind, content) {
+    return {
+      schemaVersion: 1,
+      command: "cache.read",
+      ok: true,
+      data: { kind: kind, content: content },
+      error: null
+    }
+  }
+
   function test_synthetic_summary_satisfies_parser() {
     var synthetic = Model.syntheticSummary(Date.parse("2026-08-26T12:00:00Z"))
     var result = Model.parseSummary(JSON.stringify(synthetic))
@@ -65,6 +75,90 @@ TestCase {
 
     verify(!result.ok)
     compare(result.error, "too_large")
+  }
+
+  function test_display_cache_envelope_accepts_only_reviewed_contract_content() {
+    var now = Date.parse("2026-08-26T12:00:00Z")
+    var summaryEnvelope = displayCacheEnvelope(
+      "summary", JSON.stringify(Model.syntheticSummary(now)))
+    var trendEnvelope = displayCacheEnvelope(
+      "activity-trends", JSON.stringify(Model.syntheticActivityTrends(now)))
+
+    var summaryResult = Model.parseDisplayCacheEnvelope(
+      JSON.stringify(summaryEnvelope), "summary")
+    var trendResult = Model.parseDisplayCacheEnvelope(
+      JSON.stringify(trendEnvelope), "activity-trends")
+
+    verify(summaryResult.ok)
+    compare(summaryResult.summary.periods.length, 4)
+    verify(trendResult.ok)
+    compare(trendResult.trends.periods[2].points.length, 13)
+  }
+
+  function test_display_cache_envelope_rejects_empty_backend_output() {
+    var result = Model.parseDisplayCacheEnvelope("", "summary")
+
+    verify(!result.ok)
+    compare(result.error, "invalid_envelope")
+  }
+
+  function test_display_cache_envelope_rejects_mismatch_and_unexpected_fields() {
+    var envelope = displayCacheEnvelope(
+      "activity-trends", JSON.stringify(Model.syntheticActivityTrends(
+        Date.parse("2026-08-26T12:00:00Z"))))
+
+    verify(!Model.parseDisplayCacheEnvelope(JSON.stringify(envelope), "summary").ok)
+
+    envelope.data.path = "/fabricated/private/path"
+    verify(!Model.parseDisplayCacheEnvelope(
+      JSON.stringify(envelope), "activity-trends").ok)
+  }
+
+  function test_display_cache_envelope_enforces_response_and_content_bounds() {
+    var envelope = displayCacheEnvelope("summary", "x".repeat(1048577))
+    var contentResult = Model.parseDisplayCacheEnvelope(JSON.stringify(envelope), "summary")
+    var responseResult = Model.parseDisplayCacheEnvelope(
+      "x".repeat(65536 * 2 + 4097), "activity-trends")
+
+    verify(!contentResult.ok)
+    compare(contentResult.error, "invalid_envelope")
+    verify(!responseResult.ok)
+    compare(responseResult.error, "too_large")
+  }
+
+  function test_display_cache_envelope_preserves_only_stable_backend_error_code() {
+    var envelope = {
+      schemaVersion: 1,
+      command: "cache.read",
+      ok: false,
+      data: null,
+      error: { code: "local_storage_error", message: "A local error occurred." }
+    }
+
+    var result = Model.parseDisplayCacheEnvelope(JSON.stringify(envelope), "summary")
+
+    verify(!result.ok)
+    compare(result.error, "local_storage_error")
+
+    envelope.error.code = "cache_missing"
+    result = Model.parseDisplayCacheEnvelope(JSON.stringify(envelope), "summary")
+    verify(!result.ok)
+    compare(result.error, "cache_missing")
+
+    envelope.error.code = "fabricated_sensitive_error"
+    result = Model.parseDisplayCacheEnvelope(JSON.stringify(envelope), "summary")
+    verify(!result.ok)
+    compare(result.error, "invalid_envelope")
+  }
+
+  function test_summary_cache_missing_state_respects_preserved_memory() {
+    compare(Model.summaryCacheReadError(false, "", "cache_missing"), "missing")
+    compare(Model.summaryCacheReadError(true, "", "cache_missing"), "")
+    compare(Model.summaryCacheReadError(
+      true, "invalid_envelope", "cache_missing"), "invalid_envelope")
+    compare(Model.summaryCacheReadError(
+      false, "", "local_storage_error"), "local_storage_error")
+    compare(Model.summaryCacheReadError(false, "", ""), "local_storage_error")
   }
 
   function test_synthetic_activity_trends_match_the_summary_contract() {
@@ -426,6 +520,7 @@ TestCase {
   }
 
   function test_status_text_never_reflects_backend_error_content() {
+    compare(Model.statusText("stale", { cacheError: "missing" }), "No cached summary is available")
     compare(Model.statusText("offline", { hasSummary: true }), "Offline · showing cached data")
     compare(Model.statusText("reconnect", {}), "Reconnect Garmin")
     compare(Model.statusText("localError", {}), "Garmin backend reported an error")
