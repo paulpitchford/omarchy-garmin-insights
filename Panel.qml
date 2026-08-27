@@ -27,6 +27,7 @@ Panel {
   readonly property var periodKeys: ["today", "7Days", "30Days", "90Days"]
   readonly property string periodKey: periodKeys[Math.max(0, Math.min(periodIndex, periodKeys.length - 1))]
   readonly property var currentPeriod: service ? Model.periodByKey(service.summary, periodKey) : null
+  readonly property var currentTrend: service ? Model.trendByKey(service.activityTrends, periodKey) : null
   readonly property var currentPage: {
     if (!service || !service.activityPage) return null
     var page = service.activityPage
@@ -51,6 +52,10 @@ Panel {
   readonly property int updateReviewIndex: summaryBaseCount + 1
   readonly property int summaryCursorCount: summaryBaseCount + (showUpdateCheck ? 1 : 0)
     + (service && service.updateAvailable && showUpdateCheck ? 1 : 0)
+
+  function alpha(color, opacity) {
+    return Qt.rgba(color.r, color.g, color.b, opacity)
+  }
 
   function configuredPeriodIndex() {
     var key = String(setting("period", "7Days"))
@@ -428,6 +433,14 @@ Panel {
               }
             }
 
+            ActivityTimeChart {
+              width: parent.width
+              period: root.currentTrend
+              foreground: root.foreground
+              dim: root.dim
+              fontFamily: root.fontFamily
+            }
+
             CursorSurface {
               id: browseAllSurface
               visible: root.currentPeriod !== null
@@ -491,12 +504,36 @@ Panel {
                 model: root.currentPeriod ? root.currentPeriod.byType : []
 
                 CursorSurface {
+                  id: summaryTypeSurface
                   required property var modelData
                   required property int index
                   width: parent.width
                   implicitHeight: typeRow.implicitHeight + Style.space(10)
                   hasCursor: root.cursorActive && root.summaryIndex === index + 1
                   foreground: root.foreground
+                  clip: true
+
+                  Rectangle {
+                    anchors.fill: parent
+                    radius: Style.cornerRadius
+                    color: root.alpha(
+                      root.foreground, summaryTypeSurface.hasCursor ? 0.08 : 0.035)
+                  }
+
+                  Rectangle {
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: parent.width * Model.typeActivityShare(
+                      root.currentPeriod, summaryTypeSurface.modelData.activityCount)
+                    radius: Style.cornerRadius
+                    color: root.alpha(
+                      root.foreground, summaryTypeSurface.hasCursor ? 0.20 : 0.13)
+
+                    Behavior on width {
+                      NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                    }
+                  }
 
                   Row {
                     id: typeRow
@@ -513,7 +550,7 @@ Panel {
 
                       Text {
                         width: parent.width
-                        text: Model.typeLabel(modelData.typeKey)
+                        text: Model.typeLabel(summaryTypeSurface.modelData.typeKey)
                         textFormat: Text.PlainText
                         color: root.foreground
                         font.family: root.fontFamily
@@ -523,7 +560,7 @@ Panel {
 
                       Text {
                         width: parent.width
-                        text: Model.formatCount(modelData.activityCount)
+                        text: Model.formatCount(summaryTypeSurface.modelData.activityCount)
                         color: root.dim
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption
@@ -536,14 +573,15 @@ Panel {
 
                       Text {
                         anchors.right: parent.right
-                        text: Model.formatDuration(modelData.durationSeconds.value)
+                        text: Model.formatDuration(summaryTypeSurface.modelData.durationSeconds.value)
                         color: root.foreground
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.bodySmall
                       }
                       Text {
                         anchors.right: parent.right
-                        text: Model.formatDistance(modelData.distanceMetres.value, root.imperial)
+                        text: Model.formatDistance(
+                          summaryTypeSurface.modelData.distanceMetres.value, root.imperial)
                         color: root.dim
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption
@@ -555,8 +593,11 @@ Panel {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onEntered: { root.cursorActive = true; root.summaryIndex = index + 1 }
-                    onClicked: root.openActivityList(modelData.typeKey)
+                    onEntered: {
+                      root.cursorActive = true
+                      root.summaryIndex = summaryTypeSurface.index + 1
+                    }
+                    onClicked: root.openActivityList(summaryTypeSurface.modelData.typeKey)
                   }
                 }
               }

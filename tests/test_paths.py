@@ -5,6 +5,7 @@ import pytest
 from omarchy_garmin.paths import (
     ACCOUNT_SCOPE_FILE_NAME,
     ACTIVITY_DATABASE_FILE_NAME,
+    ACTIVITY_TRENDS_FILE_NAME,
     APP_DIRECTORY,
     SUMMARY_FILE_NAME,
     SYNC_LOCK_FILE_NAME,
@@ -30,6 +31,7 @@ def test_application_file_paths_use_dedicated_xdg_scopes() -> None:
     assert paths.account_scope_file == paths.data / ACCOUNT_SCOPE_FILE_NAME
     assert paths.activity_database == paths.data / ACTIVITY_DATABASE_FILE_NAME
     assert paths.summary_file == paths.cache / SUMMARY_FILE_NAME
+    assert paths.activity_trends_file == paths.cache / ACTIVITY_TRENDS_FILE_NAME
     assert paths.sync_lock_file is None
 
 

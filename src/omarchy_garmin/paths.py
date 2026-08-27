@@ -11,6 +11,7 @@ TOKEN_FILE_NAME = "garmin_tokens.json"  # noqa: S105 - fixed filename, not a cre
 ACCOUNT_SCOPE_FILE_NAME = "account_scope.json"
 ACTIVITY_DATABASE_FILE_NAME = "activities.sqlite3"
 SUMMARY_FILE_NAME = "summary.json"
+ACTIVITY_TRENDS_FILE_NAME = "activity-trends.json"
 SYNC_LOCK_FILE_NAME = "sync.lock"
 
 
@@ -57,6 +58,11 @@ class AppPaths:
     def summary_file(self) -> Path:
         """Return the bounded display summary cache path."""
         return self.cache / SUMMARY_FILE_NAME
+
+    @property
+    def activity_trends_file(self) -> Path:
+        """Return the bounded activity-trends cache path."""
+        return self.cache / ACTIVITY_TRENDS_FILE_NAME
 
     @property
     def sync_lock_file(self) -> Path | None:

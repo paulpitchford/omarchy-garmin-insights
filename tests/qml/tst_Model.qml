@@ -67,6 +67,79 @@ TestCase {
     compare(result.error, "too_large")
   }
 
+  function test_synthetic_activity_trends_match_the_summary_contract() {
+    var now = Date.parse("2026-08-26T12:00:00Z")
+    var summary = Model.parseSummary(JSON.stringify(Model.syntheticSummary(now))).summary
+    var parsed = Model.parseActivityTrends(JSON.stringify(Model.syntheticActivityTrends(now)))
+
+    verify(parsed.ok)
+    verify(Model.trendsForSummary(parsed.trends, summary) !== null)
+    compare(parsed.trends.periods[0].points.length, 7)
+    compare(parsed.trends.periods[1].points.length, 30)
+    compare(parsed.trends.periods[2].points.length, 13)
+    compare(parsed.trends.periods[2].points[0].startDate, "2026-05-29")
+    compare(parsed.trends.periods[2].points[0].endDate, "2026-06-03")
+    verify(parsed.trends.periods[2].points[12].partial)
+  }
+
+  function test_activity_trend_parser_distinguishes_zero_and_missing_duration() {
+    var trends = Model.syntheticActivityTrends(Date.parse("2026-08-26T12:00:00Z"))
+    var emptyPoint = trends.periods[0].points[0]
+    emptyPoint.activityCount = 0
+    emptyPoint.durationSeconds = { value: 0, contributingActivityCount: 0 }
+    emptyPoint.distanceMetres = { value: 0, contributingActivityCount: 0 }
+    emptyPoint.elevationGainMetres = { value: 0, contributingActivityCount: 0 }
+    emptyPoint.energyJoules = { value: 0, contributingActivityCount: 0 }
+    verify(Model.parseActivityTrends(JSON.stringify(trends)).ok)
+
+    trends.periods[0].points[0].durationSeconds = { value: null, contributingActivityCount: 0 }
+    verify(!Model.parseActivityTrends(JSON.stringify(trends)).ok)
+
+    trends = Model.syntheticActivityTrends(Date.parse("2026-08-26T12:00:00Z"))
+    var activePoint = trends.periods[0].points[6]
+    activePoint.durationSeconds = { value: null, contributingActivityCount: 0 }
+    verify(Model.parseActivityTrends(JSON.stringify(trends)).ok)
+  }
+
+  function test_activity_trend_parser_rejects_shape_and_size_violations() {
+    var trends = Model.syntheticActivityTrends(Date.parse("2026-08-26T12:00:00Z"))
+    trends.periods[2].points[0].endDate = "2026-06-04"
+    verify(!Model.parseActivityTrends(JSON.stringify(trends)).ok)
+
+    trends = Model.syntheticActivityTrends(Date.parse("2026-08-26T12:00:00Z"))
+    trends.periods[0].points[0].activityId = "900000000001"
+    verify(!Model.parseActivityTrends(JSON.stringify(trends)).ok)
+    verify(!Model.parseActivityTrends("x".repeat(65537)).ok)
+  }
+
+  function test_stale_or_inconsistent_trends_are_hidden_from_the_summary() {
+    var now = Date.parse("2026-08-26T12:00:00Z")
+    var summary = Model.parseSummary(JSON.stringify(Model.syntheticSummary(now))).summary
+    var parsed = Model.parseActivityTrends(JSON.stringify(Model.syntheticActivityTrends(now)))
+    parsed.trends.generatedAt = "2026-08-26T11:59:59Z"
+    compare(Model.trendsForSummary(parsed.trends, summary), null)
+
+    parsed = Model.parseActivityTrends(JSON.stringify(Model.syntheticActivityTrends(now)))
+    parsed.trends.periods[0].points[0].activityCount++
+    compare(Model.trendsForSummary(parsed.trends, summary), null)
+
+    parsed = Model.parseActivityTrends(JSON.stringify(Model.syntheticActivityTrends(now)))
+    parsed.trends.periods[0].points[6].durationSeconds.value++
+    compare(Model.trendsForSummary(parsed.trends, summary), null)
+  }
+
+  function test_activity_trend_peak_and_type_background_share_are_bounded() {
+    var now = Date.parse("2026-08-26T12:00:00Z")
+    var trends = Model.parseActivityTrends(JSON.stringify(Model.syntheticActivityTrends(now))).trends
+    var summary = Model.parseSummary(JSON.stringify(Model.syntheticSummary(now))).summary
+    var week = Model.periodByKey(summary, "7Days")
+
+    compare(Model.trendDurationPeak(Model.trendByKey(trends, "7Days")), 5400)
+    compare(Model.typeActivityShare(week, 2), 1)
+    compare(Model.typeActivityShare(week, 1), 0.5)
+    compare(Model.typeActivityShare(null, 1), 0)
+  }
+
   function test_type_labels_remain_display_text() {
     compare(Model.typeLabel("<b>synthetic_type</b>"), "<b>synthetic type</b>")
   }

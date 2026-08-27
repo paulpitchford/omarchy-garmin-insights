@@ -35,13 +35,13 @@ Authentication uses the PyPI release of `python-garminconnect` pinned in `pyproj
 
 Tokens are stored at `$XDG_STATE_HOME/omarchy-garmin-insights/auth/garmin_tokens.json`. The application directories use mode `0700`, and private files use mode `0600`. Reads and removals reject symlinks, non-regular files, unexpected owners, and oversized content. The backend stores a pseudonymous account fingerprint separately so tokens for another account cannot be used with existing local activity data.
 
-`auth logout --confirm` removes only the token file. `auth purge --confirm` removes the token, account scope, activities, and Garmin summary cache. Neither command makes a Garmin request or revokes server-side tokens. Login, logout, and purge use the activity lock when a private runtime directory is available, so they cannot race a refresh.
+`auth logout --confirm` removes only the token file. `auth purge --confirm` removes the token, account scope, activities, summary cache, and activity-trends cache. Neither command makes a Garmin request or revokes server-side tokens. Login, logout, and purge use the activity lock when a private runtime directory is available, so they cannot race a refresh.
 
 ## Current synchronization boundary
 
 `refresh` restores only the plugin's dedicated tokens and calls `get_activities_by_date` without an activity-type filter. It uses at most one transient retry and has a 120-second overall Garmin request deadline. Authentication failures and rate limits fail immediately. An owner-only lock at `$XDG_RUNTIME_DIR/omarchy-garmin-insights/sync.lock` prevents overlapping refreshes.
 
-The backend validates a maximum of 20,000 activities per refresh. It keeps only reviewed summary fields and drops every other response field before persistence. The SQLite database contains no coordinates, routes, maps, raw responses, account IDs, or email addresses. Reconciliation and deletion happen in one transaction, and full reconciliations retain only the rolling 90-day window.
+The backend validates a maximum of 20,000 activities per refresh. It keeps only reviewed summary fields and drops every other response field before persistence. The SQLite database contains no coordinates, routes, maps, raw responses, account IDs, or email addresses. Reconciliation and deletion happen in one transaction, and full reconciliations retain only the rolling 90-day window. The separate bounded activity-trends cache is derived from that normalized snapshot without another Garmin request and contains only calendar buckets, aggregate metrics, and contributor counts; it excludes activity identity, names, types, times, and locations.
 
 Activity drill-down reads SQLite locally in fixed pages of at most 20 and returns a separate bounded detail contract. These commands do not authenticate, refresh, or contact Garmin. They expose only allowlisted fields, never complete URLs or location data. The browser action accepts a validated decimal activity ID and constructs the fixed Garmin Connect HTTPS destination in QML.
 
