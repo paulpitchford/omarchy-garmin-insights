@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_panel_keeps_action_footer_outside_scrollable_content() -> None:
-    panel = (Path(__file__).parents[1] / "Panel.qml").read_text()
+    panel = (Path(__file__).parents[1] / "Panel.qml").read_text(encoding="utf-8")
 
     assert "Style.space(640))" in panel
     assert "anchors.bottom: panelFooter.top" in panel
