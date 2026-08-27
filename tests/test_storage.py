@@ -163,6 +163,35 @@ def test_private_file_owned_by_another_user_is_rejected(
         private_file_exists(private_file)
 
 
+def test_private_file_read_opens_the_final_component_nonblocking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = ensure_private_directory(tmp_path / "state")
+    private_file = directory / "private.json"
+    private_file.write_bytes(b"synthetic")
+    original_open = os.open
+    file_flags: list[int] = []
+
+    def recording_open(
+        path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        if path == private_file.name:
+            file_flags.append(flags)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", recording_open)
+
+    content = read_private_file(private_file, max_bytes=32)
+
+    assert content == b"synthetic"
+    assert len(file_flags) == 1
+    assert file_flags[0] & os.O_NONBLOCK
+
+
 def test_private_file_read_is_bounded(tmp_path: Path) -> None:
     directory = ensure_private_directory(tmp_path / "state")
     private_file = directory / "private.json"

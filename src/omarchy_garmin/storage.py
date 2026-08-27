@@ -103,7 +103,7 @@ def _opened_private_file(path: Path) -> Iterator[int]:
     """Open a regular owner-only file relative to its secured parent directory."""
     _require_absolute(path)
     with _secured_directory(path.parent) as parent_descriptor:
-        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+        flags = os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC
         try:
             descriptor = os.open(path.name, flags, dir_fd=parent_descriptor)
         except OSError as error:

@@ -213,6 +213,8 @@ backend auth logout --confirm
 backend auth purge --confirm
 backend refresh --json
 backend refresh --json --full
+backend cache read --json --kind summary
+backend cache read --json --kind activity-trends
 backend activities list --json --period 7Days --as-of 2026-08-26
 backend activities list --json --period 30Days --as-of 2026-08-26 --type-key running --offset 20
 backend activities detail --json --activity-id 900000000001
@@ -239,6 +241,8 @@ The backend and update helper use the same XDG paths. Standard defaults apply wh
 | Python environment | `$XDG_CACHE_HOME/omarchy-garmin-insights/uv-environment` | Until removed manually |
 
 Defaults are `~/.local/state`, `~/.local/share`, and `~/.cache`. Private application data directories are secured to mode `0700`; private files use mode `0600`. Storage operations reject unsafe final symlinks, unexpected owners, non-regular files, and oversized private files.
+
+The long-lived QML service does not open display-cache paths. It invokes the short-lived `cache read` backend command with a fixed reviewed cache kind. The backend opens the final component without following symlinks and in nonblocking mode, verifies that it is a regular owner-owned file, and reads no more than that contract's byte limit. The QML service applies a five-second command deadline and validates the bounded response before replacing in-memory state.
 
 The account fingerprint is a one-way SHA-256 value used to prevent data from two Garmin accounts being merged. The raw account identifier, email address, and Garmin profile response are not saved. Update-check metadata contains only a timestamp and validated public Git commit IDs. It contains no Garmin account or activity data.
 

@@ -27,6 +27,11 @@ from omarchy_garmin.auth import (
     InvalidAuthResponseError,
 )
 from omarchy_garmin.cli import OUTPUT_SCHEMA_VERSION, run
+from omarchy_garmin.display_cache import (
+    DisplayCacheDataError,
+    DisplayCacheKind,
+    DisplayCacheStorageError,
+)
 from omarchy_garmin.errors import ERROR_SPECS, ErrorCode, ExitStatus
 from omarchy_garmin.sync import (
     ActivityAuthenticationRequiredError,
@@ -134,6 +139,19 @@ class _FakeActivityViewOperations:
         return ActivityDetail(self.activity)
 
 
+class _FakeDisplayCacheOperations:
+    def __init__(self, *, content: str = "synthetic", failure: Exception | None = None) -> None:
+        self.content = content
+        self.failure = failure
+        self.calls: list[DisplayCacheKind] = []
+
+    def read(self, kind: DisplayCacheKind) -> str:
+        self.calls.append(kind)
+        if self.failure is not None:
+            raise self.failure
+        return self.content
+
+
 class _FailingEnvironment(Mapping[str, str]):
     def __getitem__(self, key: str) -> str:
         raise RuntimeError("fabricated-sensitive-value")
@@ -143,6 +161,123 @@ class _FailingEnvironment(Mapping[str, str]):
 
     def __len__(self) -> int:
         return 0
+
+
+def test_cache_read_json_has_stable_bounded_contract() -> None:
+    operations = _FakeDisplayCacheOperations(content='{"schemaVersion":1}\n')
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_status = run(
+        ["cache", "read", "--json", "--kind", "summary"],
+        stdout=stdout,
+        stderr=stderr,
+        environment={},
+        home=Path("/home/example"),
+        display_cache_operations=operations,
+    )
+
+    payload: dict[str, Any] = json.loads(stdout.getvalue())
+    assert exit_status == ExitStatus.SUCCESS
+    assert stderr.getvalue() == ""
+    assert operations.calls == [DisplayCacheKind.SUMMARY]
+    assert payload == {
+        "schemaVersion": OUTPUT_SCHEMA_VERSION,
+        "command": "cache.read",
+        "ok": True,
+        "data": {"kind": "summary", "content": '{"schemaVersion":1}\n'},
+        "error": None,
+    }
+
+
+def test_cache_read_human_output_does_not_expose_content() -> None:
+    operations = _FakeDisplayCacheOperations(content="synthetic-private-content")
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_status = run(
+        ["cache", "read", "--kind", "activity-trends"],
+        stdout=stdout,
+        stderr=stderr,
+        environment={},
+        home=Path("/home/example"),
+        display_cache_operations=operations,
+    )
+
+    assert exit_status == ExitStatus.SUCCESS
+    assert stderr.getvalue() == ""
+    assert stdout.getvalue() == "activity-trends display cache is available.\n"
+    assert "synthetic-private-content" not in stdout.getvalue()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param(DisplayCacheStorageError("fabricated path"), id="storage"),
+        pytest.param(DisplayCacheDataError("fabricated content"), id="data"),
+    ],
+)
+def test_cache_read_failure_uses_redacted_local_storage_error(failure: Exception) -> None:
+    operations = _FakeDisplayCacheOperations(failure=failure)
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_status = run(
+        ["cache", "read", "--json", "--kind", "summary"],
+        stdout=stdout,
+        stderr=stderr,
+        environment={},
+        home=Path("/home/example"),
+        display_cache_operations=operations,
+    )
+
+    payload: dict[str, Any] = json.loads(stdout.getvalue())
+    assert exit_status == ExitStatus.STORAGE_ERROR
+    assert stderr.getvalue() == ""
+    assert payload["command"] == "cache.read"
+    assert payload["error"]["code"] == "local_storage_error"
+    assert "fabricated" not in stdout.getvalue()
+
+
+def test_cache_read_rejects_unsupported_kind_without_reflection() -> None:
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_status = run(
+        ["cache", "read", "--json", "--kind", "hostile-kind"],
+        stdout=stdout,
+        stderr=stderr,
+        environment={},
+        home=Path("/home/example"),
+    )
+
+    payload: dict[str, Any] = json.loads(stdout.getvalue())
+    assert exit_status == ExitStatus.INVALID_ARGUMENTS
+    assert payload["command"] == "cache.read"
+    assert payload["error"]["code"] == "invalid_arguments"
+    assert "hostile-kind" not in stdout.getvalue()
+
+
+def test_cache_read_rejects_output_above_process_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operations = _FakeDisplayCacheOperations(content="synthetic")
+    stdout = StringIO()
+    stderr = StringIO()
+    monkeypatch.setattr(cli_module, "MAX_DISPLAY_CACHE_OUTPUT_BYTES", 1)
+
+    exit_status = run(
+        ["cache", "read", "--json", "--kind", "summary"],
+        stdout=stdout,
+        stderr=stderr,
+        environment={},
+        home=Path("/home/example"),
+        display_cache_operations=operations,
+    )
+
+    payload: dict[str, Any] = json.loads(stdout.getvalue())
+    assert exit_status == ExitStatus.STORAGE_ERROR
+    assert payload["error"]["code"] == "local_storage_error"
 
 
 def test_doctor_json_has_stable_machine_contract() -> None:
