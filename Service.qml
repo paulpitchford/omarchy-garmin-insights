@@ -48,8 +48,6 @@ Item {
   property int recoveryRetryCount: 0
   property double recoveryHeartbeatMs: Date.now()
 
-  readonly property bool recoveryPending: recoveryTimer.running
-
   readonly property string sourceDir: manifest && manifest.__sourceDir ? String(manifest.__sourceDir) : ""
   readonly property string homeDir: Quickshell.env("HOME")
   readonly property string cacheRoot: absoluteEnvironmentPath("XDG_CACHE_HOME", homeDir + "/.cache")
