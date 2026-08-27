@@ -180,6 +180,16 @@ Review the complete diff in a separate pass after implementation. The review mus
 
 Do not merge with unresolved high- or medium-severity findings. Record the review in the pull request even when it finds no defects. Be explicit when the reviewer is the author performing a separate self-review rather than an independent reviewer.
 
+## Repository governance
+
+- Protect public `main` with separate quality and merger-allowlist rulesets. The quality gate has no bypass actor and requires a pull request, current successful Python 3.12 and 3.13 GitHub Actions checks, resolved conversations, and linear history. Direct pushes, force pushes, and deletion are blocked, including for the owner.
+- Allow only squash merges. Keep merge commits and rebase merges disabled, and delete merged topic branches automatically.
+- Merge authority is explicit and separate from repository access. Only `paulpitchford` and future users individually approved as merge maintainers may appear as specific `User` actors in the merger allowlist, with `pull_request` bypass mode. `Write`, `Maintain`, `Admin`, organization-owner, App, bot, deploy-key, and broad repository-role classes do not receive merge authority.
+- Keep Actions permissions read-only and unable to approve pull requests. Do not add automation to a ruleset bypass list without a separately reviewed, owner-approved threat model.
+- Protect `refs/tags/v*` with separate creation and immutability rules. Only the owner or an explicitly approved release maintainer may create a release tag. No actor may update, force-update, or delete a published release tag.
+- Treat rulesets, branch settings, collaborators, deploy keys, Apps, webhooks, Actions permissions, secrets, environments, repository visibility, transfers, archival, and deletion as owner-approved security changes. Audit them before each release and at least quarterly.
+- Do not weaken protection merely because GitHub or CI is unavailable. A genuine owner-led recovery must be time-bounded and documented, add no standing bypass, restore the exact protection immediately, and rerun API and synthetic pull-request verification.
+
 ## Change workflow
 
 1. Run `git status --short --branch` before editing.
@@ -201,7 +211,7 @@ Do not merge with unresolved high- or medium-severity findings. Record the revie
 8. Confirm that no secret, private data, generated environment, local database, or ignored personal file is staged.
 9. Use a concise imperative commit subject.
 10. Push the branch, open a pull request, and perform the separate review described above.
-11. Merge only after CI passes and review findings are resolved.
+11. Squash-merge only after CI passes, the branch is current, and review conversations and findings are resolved.
 12. Do not publish a release, submit to a marketplace, or change repository visibility without the owner's explicit approval.
 
 Do not rewrite unrelated code, weaken a test to make it pass, suppress a security finding without fixing its cause, or claim a check passed when it was not run.
