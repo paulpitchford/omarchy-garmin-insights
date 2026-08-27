@@ -4,7 +4,7 @@ Garmin Insights is an Omarchy Quattro bar plugin that shows recent Garmin Connec
 
 ![Garmin Insights summary showing fabricated demo data](preview.png)
 
-Current release: [`v0.1.0`](https://github.com/paulpitchford/omarchy-garmin-insights/releases/tag/v0.1.0)
+Current release: [`v0.1.1`](https://github.com/paulpitchford/omarchy-garmin-insights/releases/tag/v0.1.1)
 
 The plugin ID is `io.github.paulpitchford.garmin-insights`.
 
