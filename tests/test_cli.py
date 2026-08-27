@@ -45,6 +45,7 @@ from omarchy_garmin.sync import (
     ActivitySyncConfigurationError,
     RefreshResult,
 )
+from omarchy_garmin.trends import MAX_ACTIVITY_TRENDS_BYTES
 
 
 class _FakeAuthOperations:
@@ -288,10 +289,29 @@ def test_cache_read_rejects_output_above_process_contract(
     operations = _FakeDisplayCacheOperations(content="synthetic")
     stdout = StringIO()
     stderr = StringIO()
-    monkeypatch.setattr(cli_module, "MAX_DISPLAY_CACHE_OUTPUT_BYTES", 1)
+    monkeypatch.setattr(cli_module, "display_cache_output_limit", lambda _kind: 1)
 
     exit_status = run(
         ["cache", "read", "--json", "--kind", "summary"],
+        stdout=stdout,
+        stderr=stderr,
+        environment={},
+        home=Path("/home/example"),
+        display_cache_operations=operations,
+    )
+
+    payload: dict[str, Any] = json.loads(stdout.getvalue())
+    assert exit_status == ExitStatus.STORAGE_ERROR
+    assert payload["error"]["code"] == "local_storage_error"
+
+
+def test_cache_read_enforces_smaller_activity_trends_envelope_bound() -> None:
+    operations = _FakeDisplayCacheOperations(content="é" * (MAX_ACTIVITY_TRENDS_BYTES // 2))
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_status = run(
+        ["cache", "read", "--json", "--kind", "activity-trends"],
         stdout=stdout,
         stderr=stderr,
         environment={},

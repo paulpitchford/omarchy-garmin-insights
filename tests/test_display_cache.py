@@ -5,11 +5,13 @@ from typing import Any, cast
 import pytest
 
 from omarchy_garmin.display_cache import (
+    DISPLAY_CACHE_ENVELOPE_OVERHEAD_BYTES,
     DisplayCacheDataError,
     DisplayCacheKind,
     DisplayCacheMissingError,
     DisplayCacheReader,
     DisplayCacheStorageError,
+    display_cache_output_limit,
 )
 from omarchy_garmin.paths import AppPaths
 from omarchy_garmin.storage import ensure_private_directory
@@ -89,11 +91,34 @@ def test_reader_distinguishes_missing_cache_from_unsafe_storage(tmp_path: Path) 
         DisplayCacheReader(paths).read(DisplayCacheKind.SUMMARY)
 
 
+@pytest.mark.parametrize(
+    ("kind", "content_limit"),
+    [
+        pytest.param(DisplayCacheKind.SUMMARY, MAX_SUMMARY_BYTES, id="summary"),
+        pytest.param(
+            DisplayCacheKind.ACTIVITY_TRENDS,
+            MAX_ACTIVITY_TRENDS_BYTES,
+            id="activity-trends",
+        ),
+    ],
+)
+def test_output_limit_matches_each_qml_envelope_bound(
+    kind: DisplayCacheKind, content_limit: int
+) -> None:
+    assert display_cache_output_limit(kind) == (
+        content_limit * 2 + DISPLAY_CACHE_ENVELOPE_OVERHEAD_BYTES
+    )
+
+
 def test_reader_rejects_unhandled_cache_kind(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
 
+    future_kind = cast(Any, "future-cache")
+
     with pytest.raises(DisplayCacheDataError, match="kind is not implemented"):
-        DisplayCacheReader(paths).read(cast(Any, "future-cache"))
+        DisplayCacheReader(paths).read(future_kind)
+    with pytest.raises(DisplayCacheDataError, match="kind is not implemented"):
+        display_cache_output_limit(future_kind)
 
 
 def test_reader_rejects_invalid_utf8(tmp_path: Path) -> None:

@@ -44,13 +44,13 @@ from omarchy_garmin.auth import (
     InvalidAuthResponseError,
 )
 from omarchy_garmin.display_cache import (
-    MAX_DISPLAY_CACHE_OUTPUT_BYTES,
     DisplayCacheDataError,
     DisplayCacheError,
     DisplayCacheKind,
     DisplayCacheMissingError,
     DisplayCacheOperations,
     DisplayCacheReader,
+    display_cache_output_limit,
 )
 from omarchy_garmin.errors import ERROR_SPECS, CommandError, ErrorCode, ExitStatus
 from omarchy_garmin.paths import AppPaths
@@ -440,7 +440,7 @@ def _run_display_cache(
     if arguments.as_json:
         payload = _success_payload("cache.read", {"kind": kind.value, "content": content})
         serialized = json.dumps(payload, separators=(",", ":"), sort_keys=True)
-        if len(serialized.encode()) + 1 > MAX_DISPLAY_CACHE_OUTPUT_BYTES:
+        if len(serialized.encode()) + 1 > display_cache_output_limit(kind):
             raise DisplayCacheDataError("display cache response exceeds the output bound")
         stdout.write(serialized + "\n")
     else:
