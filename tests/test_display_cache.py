@@ -6,6 +6,7 @@ import pytest
 from omarchy_garmin.display_cache import (
     DisplayCacheDataError,
     DisplayCacheKind,
+    DisplayCacheMissingError,
     DisplayCacheReader,
     DisplayCacheStorageError,
 )
@@ -77,6 +78,14 @@ def test_reader_rejects_cache_above_its_contract_limit(
 
     with pytest.raises(DisplayCacheStorageError, match="read safely"):
         DisplayCacheReader(paths).read(kind)
+
+
+def test_reader_distinguishes_missing_cache_from_unsafe_storage(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    ensure_private_directory(paths.cache)
+
+    with pytest.raises(DisplayCacheMissingError, match="does not exist"):
+        DisplayCacheReader(paths).read(DisplayCacheKind.SUMMARY)
 
 
 def test_reader_rejects_invalid_utf8(tmp_path: Path) -> None:

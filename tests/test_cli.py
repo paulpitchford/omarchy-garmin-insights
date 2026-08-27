@@ -30,6 +30,7 @@ from omarchy_garmin.cli import OUTPUT_SCHEMA_VERSION, run
 from omarchy_garmin.display_cache import (
     DisplayCacheDataError,
     DisplayCacheKind,
+    DisplayCacheMissingError,
     DisplayCacheStorageError,
 )
 from omarchy_garmin.errors import ERROR_SPECS, ErrorCode, ExitStatus
@@ -190,6 +191,29 @@ def test_cache_read_json_has_stable_bounded_contract() -> None:
     }
 
 
+def test_cache_read_missing_file_uses_distinct_redacted_error() -> None:
+    operations = _FakeDisplayCacheOperations(
+        failure=DisplayCacheMissingError("fabricated missing path")
+    )
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_status = run(
+        ["cache", "read", "--json", "--kind", "summary"],
+        stdout=stdout,
+        stderr=stderr,
+        environment={},
+        home=Path("/home/example"),
+        display_cache_operations=operations,
+    )
+
+    payload: dict[str, Any] = json.loads(stdout.getvalue())
+    assert exit_status == ExitStatus.STORAGE_ERROR
+    assert stderr.getvalue() == ""
+    assert payload["error"]["code"] == "cache_missing"
+    assert "fabricated" not in stdout.getvalue()
+
+
 def test_cache_read_human_output_does_not_expose_content() -> None:
     operations = _FakeDisplayCacheOperations(content="synthetic-private-content")
     stdout = StringIO()
@@ -339,6 +363,7 @@ def test_doctor_human_output_marks_missing_runtime_directory() -> None:
         pytest.param(ErrorCode.RATE_LIMITED, 30, id="rate-limited"),
         pytest.param(ErrorCode.REMOTE_SERVICE_ERROR, 30, id="remote-service"),
         pytest.param(ErrorCode.INVALID_REMOTE_DATA, 40, id="invalid-remote-data"),
+        pytest.param(ErrorCode.CACHE_MISSING, 50, id="cache-missing"),
         pytest.param(ErrorCode.LOCAL_STORAGE_ERROR, 50, id="local-storage"),
         pytest.param(ErrorCode.REFRESH_IN_PROGRESS, 60, id="refresh-in-progress"),
         pytest.param(ErrorCode.INTERNAL_ERROR, 70, id="internal"),

@@ -17,6 +17,10 @@ class DisplayCacheError(RuntimeError):
     """Base class for safe display-cache read failures."""
 
 
+class DisplayCacheMissingError(DisplayCacheError):
+    """Raised when a reviewed display cache does not exist."""
+
+
 class DisplayCacheStorageError(DisplayCacheError):
     """Raised when a display-cache path cannot be read safely."""
 
@@ -61,5 +65,7 @@ class DisplayCacheReader:
             return content.decode("utf-8")
         except UnicodeDecodeError as error:
             raise DisplayCacheDataError("display cache is not UTF-8") from error
+        except FileNotFoundError as error:
+            raise DisplayCacheMissingError("display cache does not exist") from error
         except (OSError, UnsafeStoragePathError) as error:
             raise DisplayCacheStorageError("display cache could not be read safely") from error

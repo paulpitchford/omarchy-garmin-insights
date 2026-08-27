@@ -284,9 +284,9 @@ function parseDisplayCacheEnvelope(raw, expectedKind) {
       || typeof envelope.ok !== "boolean") return { ok: false, error: "invalid_envelope" }
   if (!envelope.ok) {
     if (envelope.data !== null || !hasOnlyKeys(envelope.error, ["code", "message"])
-        || envelope.error.code !== "local_storage_error")
+        || ["cache_missing", "local_storage_error"].indexOf(envelope.error.code) === -1)
       return { ok: false, error: "invalid_envelope" }
-    return { ok: false, error: "local_storage_error" }
+    return { ok: false, error: envelope.error.code }
   }
   if (envelope.error !== null || !hasOnlyKeys(envelope.data, ["kind", "content"])
       || envelope.data.kind !== expectedKind || typeof envelope.data.content !== "string"

@@ -48,6 +48,7 @@ from omarchy_garmin.display_cache import (
     DisplayCacheDataError,
     DisplayCacheError,
     DisplayCacheKind,
+    DisplayCacheMissingError,
     DisplayCacheOperations,
     DisplayCacheReader,
 )
@@ -681,13 +682,14 @@ def run(
             as_json=as_json,
             code=code,
         )
-    except DisplayCacheError:
+    except DisplayCacheError as error:
+        code = (
+            ErrorCode.CACHE_MISSING
+            if isinstance(error, DisplayCacheMissingError)
+            else ErrorCode.LOCAL_STORAGE_ERROR
+        )
         return _write_error(
-            stdout=stdout,
-            stderr=stderr,
-            command=command,
-            as_json=as_json,
-            code=ErrorCode.LOCAL_STORAGE_ERROR,
+            stdout=stdout, stderr=stderr, command=command, as_json=as_json, code=code
         )
     except Exception:  # noqa: BLE001 - final process boundary returns a fixed, redacted failure
         return _write_error(

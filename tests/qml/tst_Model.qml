@@ -133,6 +133,11 @@ TestCase {
     verify(!result.ok)
     compare(result.error, "local_storage_error")
 
+    envelope.error.code = "cache_missing"
+    result = Model.parseDisplayCacheEnvelope(JSON.stringify(envelope), "summary")
+    verify(!result.ok)
+    compare(result.error, "cache_missing")
+
     envelope.error.code = "fabricated_sensitive_error"
     result = Model.parseDisplayCacheEnvelope(JSON.stringify(envelope), "summary")
     verify(!result.ok)
@@ -498,6 +503,7 @@ TestCase {
   }
 
   function test_status_text_never_reflects_backend_error_content() {
+    compare(Model.statusText("stale", { cacheError: "missing" }), "No cached summary is available")
     compare(Model.statusText("offline", { hasSummary: true }), "Offline · showing cached data")
     compare(Model.statusText("reconnect", {}), "Reconnect Garmin")
     compare(Model.statusText("localError", {}), "Garmin backend reported an error")
