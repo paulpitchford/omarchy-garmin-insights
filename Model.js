@@ -299,6 +299,13 @@ function parseDisplayCacheEnvelope(raw, expectedKind) {
   return result
 }
 
+function summaryCacheReadError(hasSummary, currentError, resultError) {
+  if (resultError === "cache_missing")
+    return hasSummary ? String(currentError || "") : "missing"
+  return typeof resultError === "string" && resultError !== ""
+    ? resultError : "local_storage_error"
+}
+
 function trendMetricMatchesSummary(period, summaryMetric, key) {
   var contributors = 0
   var total = 0

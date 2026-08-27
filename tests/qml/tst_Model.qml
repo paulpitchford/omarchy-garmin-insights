@@ -151,6 +151,16 @@ TestCase {
     compare(result.error, "invalid_envelope")
   }
 
+  function test_summary_cache_missing_state_respects_preserved_memory() {
+    compare(Model.summaryCacheReadError(false, "", "cache_missing"), "missing")
+    compare(Model.summaryCacheReadError(true, "", "cache_missing"), "")
+    compare(Model.summaryCacheReadError(
+      true, "invalid_envelope", "cache_missing"), "invalid_envelope")
+    compare(Model.summaryCacheReadError(
+      false, "", "local_storage_error"), "local_storage_error")
+    compare(Model.summaryCacheReadError(false, "", ""), "local_storage_error")
+  }
+
   function test_synthetic_activity_trends_match_the_summary_contract() {
     var now = Date.parse("2026-08-26T12:00:00Z")
     var summary = Model.parseSummary(JSON.stringify(Model.syntheticSummary(now))).summary

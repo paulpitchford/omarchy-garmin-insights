@@ -9,5 +9,5 @@ def test_service_routes_private_display_cache_reads_through_backend() -> None:
     assert '"cache", "read", "--json", "--kind", "activity-trends"' in service
     assert "summaryCacheDeadline.restart()" in service
     assert "activityTrendsCacheDeadline.restart()" in service
-    assert 'result.error === "cache_missing"' in service
-    assert '? "missing"' in service
+    assert "Model.summaryCacheReadError(" in service
+    assert "cachedSummary !== null, cacheError, result.error" in service

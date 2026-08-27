@@ -645,8 +645,8 @@ Item {
     if (exitCode === 0 && result.ok) {
       cachedSummary = result.summary
       cacheError = ""
-    } else cacheError = result.error === "cache_missing"
-      ? "missing" : (result.error || "local_storage_error")
+    } else cacheError = Model.summaryCacheReadError(
+      cachedSummary !== null, cacheError, result.error)
     nowMs = Date.now()
     if (summaryCacheReloadPending) {
       summaryCacheReloadPending = false
