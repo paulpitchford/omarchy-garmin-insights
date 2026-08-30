@@ -50,7 +50,7 @@ Column {
 
   function metricLabel() {
     if (normalizedMetricKey === "distanceMetres") return "Distance"
-    if (normalizedMetricKey === "elevationGainMetres") return "Elevation"
+    if (normalizedMetricKey === "elevationGainMetres") return "Elevation gain"
     if (normalizedMetricKey === "energyJoules") return "Energy"
     return "Time"
   }

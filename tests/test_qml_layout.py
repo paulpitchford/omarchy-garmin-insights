@@ -76,9 +76,14 @@ def test_phase_six_activities_preserve_contracts_and_drilldown_selection() -> No
     assert "service.loadActivityPage(" in activities
     assert "service.loadActivityDetail(selectedActivityId)" in activities
     assert "Model.garminConnectUrl(" in activities
-    assert '["Time", "Distance", "Elevation", "Energy"]' in activities
+    assert '["Time", "Distance", "Elevation gain", "Energy"]' in activities
+    assert (
+        "columns: width >= Style.space(520) ? 4 : (width >= Style.space(320) ? 2 : 1)" in activities
+    )
     assert "metricKey: root.chartMetricKeys[root.chartMetricIndex]" in activities
-    assert "normalizedMetricKey" in (ROOT / "ActivityTimeChart.qml").read_text(encoding="utf-8")
+    chart = (ROOT / "ActivityTimeChart.qml").read_text(encoding="utf-8")
+    assert "normalizedMetricKey" in chart
+    assert 'return "Elevation gain"' in chart
     assert "savedListIndex = cursorIndex" in activities
     assert "Math.min(savedListIndex" in activities
     assert "Quickshell.execDetached" not in activities

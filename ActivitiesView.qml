@@ -30,7 +30,7 @@ Column {
   readonly property var chartMetricKeys: [
     "durationSeconds", "distanceMetres", "elevationGainMetres", "energyJoules"
   ]
-  readonly property var chartMetricLabels: ["Time", "Distance", "Elevation", "Energy"]
+  readonly property var chartMetricLabels: ["Time", "Distance", "Elevation gain", "Energy"]
   readonly property string periodKey: periodKeys[Math.max(0, Math.min(
     periodIndex, periodKeys.length - 1))]
   readonly property var currentPeriod: service ? Model.periodByKey(service.summary, periodKey) : null
@@ -308,10 +308,12 @@ Column {
       }
     }
 
-    Row {
+    Grid {
       id: chartMetrics
       width: parent.width
-      spacing: Style.space(5)
+      columns: width >= Style.space(520) ? 4 : (width >= Style.space(320) ? 2 : 1)
+      columnSpacing: Style.space(5)
+      rowSpacing: Style.space(5)
 
       Repeater {
         model: root.chartMetricLabels
@@ -319,7 +321,8 @@ Column {
         Button {
           required property string modelData
           required property int index
-          width: (chartMetrics.width - chartMetrics.spacing * 3) / 4
+          width: (chartMetrics.width - chartMetrics.columnSpacing
+            * (chartMetrics.columns - 1)) / chartMetrics.columns
           text: modelData
           tooltipText: "Chart activity " + modelData.toLowerCase()
           Accessible.name: tooltipText
