@@ -61,6 +61,18 @@ def test_missing_wellness_categories_use_one_compact_explanatory_section() -> No
     assert 'modelData.label + " unavailable · " + modelData.reason' in overview
 
 
+def test_overview_failure_styling_guards_missing_source_state() -> None:
+    overview = (ROOT / "OverviewShellPage.qml").read_text(encoding="utf-8")
+
+    assert "function signalFailureIsProblem(category, day)" in overview
+    assert (
+        'source !== null && source.failure !== null && source.failure !== "unsupported"' in overview
+    )
+    assert 'signalSource("bodyBattery", root.batteryDay).failure' not in overview
+    assert 'signalSource("sleep", root.sleepDay).failure' not in overview
+    assert 'signalSource("steps", root.stepsDay).failure' not in overview
+
+
 def test_today_visuals_match_each_metric_semantics_without_cross_metric_overlays() -> None:
     wellness = (ROOT / "WellnessShellPage.qml").read_text(encoding="utf-8")
 

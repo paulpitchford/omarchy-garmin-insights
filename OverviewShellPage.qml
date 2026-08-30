@@ -78,6 +78,11 @@ Column {
     return source ? Model.wellnessFailureText(source.failure) : ""
   }
 
+  function signalFailureIsProblem(category, day) {
+    var source = signalSource(category, day)
+    return source !== null && source.failure !== null && source.failure !== "unsupported"
+  }
+
   function batteryValue() {
     if (!batteryDay || batteryDay.bodyBattery.latest === null) return "Level unavailable"
     return formatNumber(batteryDay.bodyBattery.latest) + " / 100"
@@ -187,7 +192,7 @@ Column {
       dateText: root.signalDate(root.batteryDay)
       freshnessText: root.signalFreshness("bodyBattery", root.batteryDay)
       failureText: root.signalFailure("bodyBattery", root.batteryDay)
-      failureProblem: root.signalSource("bodyBattery", root.batteryDay).failure !== "unsupported"
+      failureProblem: root.signalFailureIsProblem("bodyBattery", root.batteryDay)
       partial: root.signalIsPartial("bodyBattery", root.batteryDay)
     }
 
@@ -200,7 +205,7 @@ Column {
       dateText: root.signalDate(root.sleepDay)
       freshnessText: root.signalFreshness("sleep", root.sleepDay)
       failureText: root.signalFailure("sleep", root.sleepDay)
-      failureProblem: root.signalSource("sleep", root.sleepDay).failure !== "unsupported"
+      failureProblem: root.signalFailureIsProblem("sleep", root.sleepDay)
     }
 
     SignalCard {
@@ -212,7 +217,7 @@ Column {
       dateText: root.signalDate(root.stepsDay)
       freshnessText: root.signalFreshness("steps", root.stepsDay)
       failureText: root.signalFailure("steps", root.stepsDay)
-      failureProblem: root.signalSource("steps", root.stepsDay).failure !== "unsupported"
+      failureProblem: root.signalFailureIsProblem("steps", root.stepsDay)
       partial: root.signalIsPartial("steps", root.stepsDay)
     }
   }
