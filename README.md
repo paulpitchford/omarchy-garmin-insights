@@ -98,7 +98,7 @@ Every image in this repository comes from the built-in synthetic demo. No Garmin
 
 - Horizontal and vertical bar layouts.
 - One shared service across widgets and monitors.
-- A responsive 600-style-unit panel that clamps to the anchor screen and falls back to one column when space is limited.
+- A responsive 600-style-unit panel that opens from the Garmin Insights bar widget, clamps to that screen, and falls back to one column when space is limited.
 - Keyboard and pointer navigation, preserved nested selections, per-page scrolling, and predictable Escape unwinding.
 - A visible terminal for backend setup, Garmin login, and update review.
 - A built-in synthetic demo that makes no Garmin request.

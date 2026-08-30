@@ -15,7 +15,7 @@ def test_panel_keeps_action_footer_outside_scrollable_content() -> None:
     assert "onViewModeChanged: scroll.contentY = 0" in panel
 
 
-def test_production_shell_uses_public_panel_fitting() -> None:
+def test_production_shell_uses_public_panel_fitting_and_widget_anchor() -> None:
     widget = (ROOT / "BarWidget.qml").read_text(encoding="utf-8")
     shell = (ROOT / "PanelShell.qml").read_text(encoding="utf-8")
 
@@ -23,7 +23,9 @@ def test_production_shell_uses_public_panel_fitting() -> None:
     assert "panel.fittedContentWidth(Style.space(600))" in shell
     assert "panel.fittedContentHeight(" in shell
     assert "Style.space(session.modeIndex === 0 ? 600 : 800)" in shell
-    assert "centerOnBar: true" in shell
+    assert "target.anchorItem = button" in widget
+    assert "anchorItem: root.anchorItem" in shell
+    assert "centerOnBar: false" in shell
     assert "readonly property bool wideLayout: panel.contentWidth >= Style.space(520)" in shell
     assert "anchors.top: shellHeader.bottom" in shell
     assert "anchors.bottom: shellFooter.top" in shell

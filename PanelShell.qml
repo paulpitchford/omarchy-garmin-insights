@@ -294,7 +294,7 @@ Panel {
     owner: root.hostWidget || root
     bar: root.bar
     open: root.opened
-    centerOnBar: true
+    centerOnBar: false
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(600))
     contentHeight: panel.fittedContentHeight(
