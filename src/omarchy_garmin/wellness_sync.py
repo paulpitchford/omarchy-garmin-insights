@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -46,8 +46,10 @@ from omarchy_garmin.wellness_database import (
     WellnessCadenceState,
     WellnessDatabaseError,
     WellnessRepository,
+    WellnessSourceFreshness,
     WellnessUpsertResult,
 )
+from omarchy_garmin.wellness_presentation import WellnessPresentationError
 
 HISTORICAL_OVERLAP_DAYS = 7
 FULL_RECONCILIATION_INTERVAL_DAYS = 7
@@ -143,6 +145,10 @@ class WellnessRepositoryOperations(Protocol):
         """Return retained daily values used to select bounded backfill."""
         ...
 
+    def source_freshness(self) -> list[WellnessSourceFreshness]:
+        """Return successful source freshness used by the display contract."""
+        ...
+
     def reserve_cadence(
         self,
         *,
@@ -168,6 +174,24 @@ class WellnessRepositoryOperations(Protocol):
         refreshed_at: datetime,
     ) -> WellnessUpsertResult:
         """Commit one completely validated source operation."""
+        ...
+
+
+class WellnessPresentationOperations(Protocol):
+    """Optional local presentation cache generated after source commits."""
+
+    def write(
+        self,
+        days: Sequence[DailyWellness],
+        source_freshness: Sequence[WellnessSourceFreshness],
+        *,
+        as_of_date: date,
+        generated_at: datetime,
+        collection_enabled: bool,
+        source_failures: Mapping[WellnessSource, WellnessFailureClassification | None]
+        | None = None,
+    ) -> None:
+        """Atomically replace one bounded wellness presentation cache."""
         ...
 
 
@@ -294,6 +318,7 @@ class WellnessRefreshResult:
     collection_enabled: bool
     full_reconciliation: bool
     request_attempts: int
+    cache_updated: bool
     sources: tuple[WellnessSourceRefreshResult, ...]
 
 
@@ -438,6 +463,7 @@ class WellnessSyncService:
         auth_store: WellnessAuthStore,
         gateway: WellnessGateway,
         repository_factory: RepositoryFactory | None = None,
+        presentation: WellnessPresentationOperations | None = None,
         today: Callable[[], date] = date.today,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
@@ -446,6 +472,7 @@ class WellnessSyncService:
         self._auth_store = auth_store
         self._gateway = gateway
         self._repository_factory = repository_factory or self._default_repository
+        self._presentation = presentation
         self._today = today
         self._now = now
 
@@ -477,10 +504,11 @@ class WellnessSyncService:
 
         try:
             repository = self._repository_factory(account_fingerprint)
-            if not repository.collection_enabled():
-                return self._result(False, False, 0, {})
             today = self._today()
             now = self._now()
+            if not repository.collection_enabled():
+                cache_updated = self._write_presentation(repository, today, now, False, {})
+                return self._result(False, False, 0, cache_updated, {})
             retention_start = today - timedelta(days=WELLNESS_RETENTION_DAYS - 1)
             plan = build_refresh_plan(
                 today=today,
@@ -494,7 +522,7 @@ class WellnessSyncService:
         except WellnessDatabaseError as error:
             raise WellnessStorageError("wellness refresh state is unavailable") from error
         if not plan.has_requests:
-            return self._result(True, plan.full_reconciliation, 0, {})
+            return self._result(True, plan.full_reconciliation, 0, False, {})
 
         accumulators: dict[WellnessSource, _SourceAccumulator] = {}
         request_attempts = 0
@@ -531,12 +559,43 @@ class WellnessSyncService:
             if not aborted:
                 self._persist_verified_session(connection.refreshed_session())
 
+        cache_updated = self._write_presentation(repository, today, now, True, accumulators)
         return self._result(
             True,
             plan.full_reconciliation,
             request_attempts,
+            cache_updated,
             accumulators,
         )
+
+    def _write_presentation(
+        self,
+        repository: WellnessRepositoryOperations,
+        today: date,
+        generated_at: datetime,
+        collection_enabled: bool,
+        accumulators: Mapping[WellnessSource, _SourceAccumulator],
+    ) -> bool:
+        if self._presentation is None:
+            return False
+        retention_start = today - timedelta(days=WELLNESS_RETENTION_DAYS - 1)
+        failures = {
+            source: accumulator.failure
+            for source, accumulator in accumulators.items()
+            if accumulator.failure is not None
+        }
+        try:
+            self._presentation.write(
+                repository.wellness_between(retention_start, today),
+                repository.source_freshness(),
+                as_of_date=today,
+                generated_at=generated_at,
+                collection_enabled=collection_enabled,
+                source_failures=failures,
+            )
+        except (WellnessDatabaseError, WellnessPresentationError):
+            return False
+        return True
 
     def _persist_verified_session(self, session: AuthenticatedSession) -> None:
         try:
@@ -762,6 +821,7 @@ class WellnessSyncService:
         collection_enabled: bool,
         full_reconciliation: bool,
         request_attempts: int,
+        cache_updated: bool,
         accumulators: dict[WellnessSource, _SourceAccumulator],
     ) -> WellnessRefreshResult:
         sources = tuple(
@@ -778,5 +838,6 @@ class WellnessSyncService:
             collection_enabled=collection_enabled,
             full_reconciliation=full_reconciliation,
             request_attempts=request_attempts,
+            cache_updated=cache_updated,
             sources=sources,
         )

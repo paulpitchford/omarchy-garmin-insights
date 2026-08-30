@@ -17,6 +17,7 @@ from omarchy_garmin.paths import AppPaths
 from omarchy_garmin.storage import ensure_private_directory
 from omarchy_garmin.summary import MAX_SUMMARY_BYTES
 from omarchy_garmin.trends import MAX_ACTIVITY_TRENDS_BYTES
+from omarchy_garmin.wellness_presentation import MAX_WELLNESS_PRESENTATION_BYTES
 
 
 def _paths(tmp_path: Path) -> AppPaths:
@@ -39,6 +40,12 @@ def _paths(tmp_path: Path) -> AppPaths:
             "activity-trends.json",
             b'{"schemaVersion":1,"periods":[]}\n',
             id="activity-trends",
+        ),
+        pytest.param(
+            DisplayCacheKind.WELLNESS,
+            "wellness.json",
+            b'{"schemaVersion":1,"days":[]}\n',
+            id="wellness",
         ),
     ],
 )
@@ -66,6 +73,12 @@ def test_reader_returns_reviewed_cache_as_utf8_text(
             "activity-trends.json",
             MAX_ACTIVITY_TRENDS_BYTES,
             id="activity-trends",
+        ),
+        pytest.param(
+            DisplayCacheKind.WELLNESS,
+            "wellness.json",
+            MAX_WELLNESS_PRESENTATION_BYTES,
+            id="wellness",
         ),
     ],
 )
@@ -99,6 +112,11 @@ def test_reader_distinguishes_missing_cache_from_unsafe_storage(tmp_path: Path) 
             DisplayCacheKind.ACTIVITY_TRENDS,
             MAX_ACTIVITY_TRENDS_BYTES,
             id="activity-trends",
+        ),
+        pytest.param(
+            DisplayCacheKind.WELLNESS,
+            MAX_WELLNESS_PRESENTATION_BYTES,
+            id="wellness",
         ),
     ],
 )
@@ -139,6 +157,19 @@ def test_reader_rejects_symlink_without_reading_target(tmp_path: Path) -> None:
 
     with pytest.raises(DisplayCacheStorageError, match="read safely"):
         DisplayCacheReader(paths).read(DisplayCacheKind.SUMMARY)
+
+    assert target.read_text() == "synthetic target"
+
+
+def test_reader_rejects_wellness_symlink_without_reading_target(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    cache = ensure_private_directory(paths.cache)
+    target = tmp_path / "private-wellness-target.json"
+    target.write_text("synthetic target")
+    (cache / "wellness.json").symlink_to(target)
+
+    with pytest.raises(DisplayCacheStorageError, match="read safely"):
+        DisplayCacheReader(paths).read(DisplayCacheKind.WELLNESS)
 
     assert target.read_text() == "synthetic target"
 

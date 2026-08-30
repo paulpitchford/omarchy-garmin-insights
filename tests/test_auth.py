@@ -278,6 +278,7 @@ def test_purge_removes_allowlisted_files_but_not_unrelated_files(tmp_path: Path)
         paths.activity_database.with_name("activities.sqlite3-journal"),
         paths.summary_file,
         paths.activity_trends_file,
+        paths.wellness_file,
     ):
         atomic_write_private(path, b"synthetic")
     unrelated = paths.data / "keep.txt"
@@ -291,6 +292,7 @@ def test_purge_removes_allowlisted_files_but_not_unrelated_files(tmp_path: Path)
     assert paths.activity_database.exists() is False
     assert paths.summary_file.exists() is False
     assert paths.activity_trends_file.exists() is False
+    assert paths.wellness_file.exists() is False
     assert unrelated.read_bytes() == b"keep"
 
 
@@ -325,6 +327,21 @@ def test_purge_rejects_symlinked_activity_trends_without_touching_target(
     target = tmp_path / "target-trends"
     target.write_bytes(b"keep")
     paths.activity_trends_file.symlink_to(target)
+
+    with pytest.raises(AuthStorageError):
+        AuthStore(paths).purge()
+
+    assert target.read_bytes() == b"keep"
+
+
+def test_purge_rejects_symlinked_wellness_cache_without_touching_target(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    ensure_private_directory(paths.cache)
+    target = tmp_path / "target-wellness"
+    target.write_bytes(b"keep")
+    paths.wellness_file.symlink_to(target)
 
     with pytest.raises(AuthStorageError):
         AuthStore(paths).purge()

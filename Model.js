@@ -6,6 +6,18 @@ var MAX_ACTIVITY_COUNT = 20000
 var MAX_TYPES = 256
 var ACTIVITY_TRENDS_SCHEMA_VERSION = 1
 var MAX_ACTIVITY_TRENDS_CHARS = 65536
+var WELLNESS_SCHEMA_VERSION = 1
+var MAX_WELLNESS_CHARS = 65536
+var WELLNESS_SOURCE_KEYS = [
+  "user_summary", "steps", "body_battery", "sleep", "hrv",
+  "resting_heart_rate", "training_readiness"
+]
+var WELLNESS_FAILURE_KEYS = [
+  "authentication", "rate_limit", "offline_transport", "remote_service",
+  "invalid_data", "local_storage", "unsupported"
+]
+var WELLNESS_PERIOD_KEYS = ["7Days", "30Days"]
+var WELLNESS_PERIOD_DAYS = [7, 30]
 var TREND_PERIOD_KEYS = ["7Days", "30Days", "90Days"]
 var TREND_PERIOD_DAYS = [7, 30, 90]
 var TREND_POINT_COUNTS = [7, 30, 13]
@@ -264,9 +276,271 @@ function parseActivityTrends(raw) {
   }
 }
 
+function optionalWellnessNumber(value, maximum, integerOnly, minimum) {
+  if (value === null) return true
+  if (!isFiniteNumber(value) || value > maximum || value < minimum) return false
+  return !integerOnly || isInteger(value)
+}
+
+function normalizeWellnessGroup(source, keys, limits, textKeys) {
+  if (source === null) return null
+  if (!hasOnlyKeys(source, keys)) return undefined
+  var result = {}
+  var present = false
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i]
+    var value = source[key]
+    if (textKeys.indexOf(key) !== -1) {
+      if (!validDisplayText(value, 64, true)) return undefined
+    } else {
+      var limit = limits[key]
+      if (!optionalWellnessNumber(value, limit[1], limit[2], limit[0])) return undefined
+    }
+    if (value !== null) present = true
+    result[key] = value
+  }
+  return present ? result : undefined
+}
+
+function normalizeWellnessDay(source, expectedDate) {
+  if (!hasOnlyKeys(source, [
+      "date", "steps", "bodyBattery", "sleep", "trainingReadiness", "hrv",
+      "restingHeartRate"
+    ]) || source.date !== expectedDate) return null
+  var steps = normalizeWellnessGroup(source.steps, ["value", "goal"], {
+    value: [0, 1000000, true], goal: [0, 1000000, true]
+  }, [])
+  var bodyBattery = normalizeWellnessGroup(source.bodyBattery, [
+    "charged", "drained", "lowest", "highest", "latest"
+  ], {
+    charged: [0, 1000, true], drained: [0, 1000, true], lowest: [0, 100, true],
+    highest: [0, 100, true], latest: [0, 100, true]
+  }, [])
+  var sleep = normalizeWellnessGroup(source.sleep, [
+    "score", "totalSeconds", "deepSeconds", "lightSeconds", "remSeconds", "awakeSeconds"
+  ], {
+    score: [0, 100, true], totalSeconds: [0, 86400, true], deepSeconds: [0, 86400, true],
+    lightSeconds: [0, 86400, true], remSeconds: [0, 86400, true], awakeSeconds: [0, 86400, true]
+  }, [])
+  var readiness = normalizeWellnessGroup(source.trainingReadiness, ["score", "level"], {
+    score: [0, 100, true]
+  }, ["level"])
+  var hrv = normalizeWellnessGroup(source.hrv, [
+    "weeklyAverageMs", "lastNightAverageMs", "status", "balancedLowMs", "balancedUpperMs"
+  ], {
+    weeklyAverageMs: [0, 1000, false], lastNightAverageMs: [0, 1000, false],
+    balancedLowMs: [0, 1000, false], balancedUpperMs: [0, 1000, false]
+  }, ["status"])
+  var resting = normalizeWellnessGroup(source.restingHeartRate, ["beatsPerMinute"], {
+    beatsPerMinute: [20, 300, true]
+  }, [])
+  if (steps === undefined || bodyBattery === undefined || sleep === undefined
+      || readiness === undefined || hrv === undefined || resting === undefined) return null
+  if (bodyBattery && bodyBattery.lowest !== null && bodyBattery.highest !== null
+      && bodyBattery.lowest > bodyBattery.highest) return null
+  if (sleep && Number(sleep.deepSeconds || 0) + Number(sleep.lightSeconds || 0)
+      + Number(sleep.remSeconds || 0) + Number(sleep.awakeSeconds || 0) > 86400) return null
+  if (hrv && hrv.balancedLowMs !== null && hrv.balancedUpperMs !== null
+      && hrv.balancedLowMs > hrv.balancedUpperMs) return null
+  return {
+    date: expectedDate,
+    steps: steps,
+    bodyBattery: bodyBattery,
+    sleep: sleep,
+    trainingReadiness: readiness,
+    hrv: hrv,
+    restingHeartRate: resting
+  }
+}
+
+function normalizeWellnessCountGroup(source, keys, maximum) {
+  if (!hasOnlyKeys(source, keys)) return null
+  var result = {}
+  for (var i = 0; i < keys.length; i++) {
+    if (!isInteger(source[keys[i]]) || source[keys[i]] > maximum) return null
+    result[keys[i]] = source[keys[i]]
+  }
+  return result
+}
+
+function normalizeWellnessCounts(source, maximum) {
+  if (!hasOnlyKeys(source, [
+      "steps", "bodyBattery", "sleep", "trainingReadiness", "hrv", "restingHeartRate"
+    ])) return null
+  var result = {
+    steps: normalizeWellnessCountGroup(source.steps, ["value", "goal"], maximum),
+    bodyBattery: normalizeWellnessCountGroup(source.bodyBattery, [
+      "charged", "drained", "lowest", "highest", "latest"
+    ], maximum),
+    sleep: normalizeWellnessCountGroup(source.sleep, [
+      "score", "totalSeconds", "deepSeconds", "lightSeconds", "remSeconds", "awakeSeconds"
+    ], maximum),
+    trainingReadiness: normalizeWellnessCountGroup(
+      source.trainingReadiness, ["score", "level"], maximum),
+    hrv: normalizeWellnessCountGroup(source.hrv, [
+      "weeklyAverageMs", "lastNightAverageMs", "status", "balancedLowMs", "balancedUpperMs"
+    ], maximum),
+    restingHeartRate: normalizeWellnessCountGroup(
+      source.restingHeartRate, ["beatsPerMinute"], maximum)
+  }
+  for (var key in result) if (!result[key]) return null
+  return result
+}
+
+function wellnessCountsForDays(days, startIndex) {
+  var result = {
+    steps: { value: 0, goal: 0 },
+    bodyBattery: { charged: 0, drained: 0, lowest: 0, highest: 0, latest: 0 },
+    sleep: { score: 0, totalSeconds: 0, deepSeconds: 0, lightSeconds: 0, remSeconds: 0, awakeSeconds: 0 },
+    trainingReadiness: { score: 0, level: 0 },
+    hrv: { weeklyAverageMs: 0, lastNightAverageMs: 0, status: 0, balancedLowMs: 0, balancedUpperMs: 0 },
+    restingHeartRate: { beatsPerMinute: 0 }
+  }
+  for (var i = startIndex; i < days.length; i++) {
+    var day = days[i]
+    for (var group in result) {
+      if (day[group] === null) continue
+      for (var key in result[group]) if (day[group][key] !== null) result[group][key]++
+    }
+  }
+  return result
+}
+
+function latestWellnessValueDate(source, days) {
+  for (var i = days.length - 1; i >= 0; i--) {
+    var day = days[i]
+    if (source === "user_summary" && (day.steps !== null || day.restingHeartRate !== null))
+      return day.date
+    if (source === "steps" && day.steps !== null && day.steps.value !== null) return day.date
+    if (source === "body_battery" && day.bodyBattery !== null) return day.date
+    if (source === "sleep" && day.sleep !== null) return day.date
+    if (source === "hrv" && day.hrv !== null) return day.date
+    if (source === "resting_heart_rate" && day.restingHeartRate !== null) return day.date
+    if (source === "training_readiness" && day.trainingReadiness !== null) return day.date
+  }
+  return null
+}
+
+function normalizeWellnessSource(source, expectedSource, days, generatedMs) {
+  if (!hasOnlyKeys(source, ["source", "refreshedAt", "latestValueDate", "failure"])
+      || source.source !== expectedSource
+      || (source.refreshedAt !== null && !validTimestamp(source.refreshedAt))
+      || (source.refreshedAt !== null && Date.parse(source.refreshedAt) > generatedMs)
+      || (source.latestValueDate !== null && !validDate(source.latestValueDate))
+      || source.latestValueDate !== latestWellnessValueDate(expectedSource, days)
+      || (source.failure !== null && WELLNESS_FAILURE_KEYS.indexOf(source.failure) === -1)) return null
+  return {
+    source: expectedSource,
+    refreshedAt: source.refreshedAt,
+    refreshedMs: source.refreshedAt === null ? 0 : Date.parse(source.refreshedAt),
+    latestValueDate: source.latestValueDate,
+    failure: source.failure
+  }
+}
+
+function parseWellness(raw) {
+  var text = String(raw || "")
+  if (text.length === 0) return { ok: false, error: "missing" }
+  if (text.length > MAX_WELLNESS_CHARS) return { ok: false, error: "too_large" }
+  var source
+  try {
+    source = JSON.parse(text)
+  } catch (error) {
+    return { ok: false, error: "invalid_json" }
+  }
+  if (!hasOnlyKeys(source, [
+      "schemaVersion", "generatedAt", "asOfLocalDate", "collectionEnabled",
+      "partialCurrentDaySources", "sources", "periods", "days"
+    ]) || source.schemaVersion !== WELLNESS_SCHEMA_VERSION || !validTimestamp(source.generatedAt)
+      || !validDate(source.asOfLocalDate) || typeof source.collectionEnabled !== "boolean"
+      || !Array.isArray(source.partialCurrentDaySources)
+      || JSON.stringify(source.partialCurrentDaySources) !== JSON.stringify(["steps", "bodyBattery"])
+      || !Array.isArray(source.days) || source.days.length !== 30
+      || !Array.isArray(source.sources) || source.sources.length !== WELLNESS_SOURCE_KEYS.length
+      || !Array.isArray(source.periods) || source.periods.length !== WELLNESS_PERIOD_KEYS.length)
+    return { ok: false, error: "invalid_schema" }
+
+  var days = []
+  var expectedDate = addCalendarDays(source.asOfLocalDate, -29)
+  for (var i = 0; i < source.days.length; i++) {
+    var day = normalizeWellnessDay(source.days[i], expectedDate)
+    if (!day) return { ok: false, error: "invalid_day" }
+    days.push(day)
+    expectedDate = addCalendarDays(expectedDate, 1)
+  }
+
+  var periods = []
+  for (var periodIndex = 0; periodIndex < source.periods.length; periodIndex++) {
+    var periodDays = WELLNESS_PERIOD_DAYS[periodIndex]
+    var period = source.periods[periodIndex]
+    var counts = period && normalizeWellnessCounts(period.contributingDays, periodDays)
+    if (!hasOnlyKeys(period, ["key", "startDate", "endDate", "contributingDays"])
+        || period.key !== WELLNESS_PERIOD_KEYS[periodIndex]
+        || period.startDate !== addCalendarDays(source.asOfLocalDate, 1 - periodDays)
+        || period.endDate !== source.asOfLocalDate || !counts
+        || JSON.stringify(counts) !== JSON.stringify(wellnessCountsForDays(days, 30 - periodDays)))
+      return { ok: false, error: "invalid_period" }
+    periods.push({
+      key: period.key,
+      startDate: period.startDate,
+      endDate: period.endDate,
+      contributingDays: counts
+    })
+  }
+
+  var generatedMs = Date.parse(source.generatedAt)
+  var sources = []
+  for (var sourceIndex = 0; sourceIndex < source.sources.length; sourceIndex++) {
+    var normalizedSource = normalizeWellnessSource(
+      source.sources[sourceIndex], WELLNESS_SOURCE_KEYS[sourceIndex], days, generatedMs)
+    if (!normalizedSource) return { ok: false, error: "invalid_source" }
+    sources.push(normalizedSource)
+  }
+  return {
+    ok: true,
+    wellness: {
+      schemaVersion: WELLNESS_SCHEMA_VERSION,
+      generatedAt: source.generatedAt,
+      generatedMs: generatedMs,
+      asOfLocalDate: source.asOfLocalDate,
+      collectionEnabled: source.collectionEnabled,
+      partialCurrentDaySources: ["steps", "bodyBattery"],
+      sources: sources,
+      periods: periods,
+      days: days
+    }
+  }
+}
+
+function wellnessSummaryDateMatches(wellness, summary) {
+  return wellness !== null && summary !== null
+    && wellness.asOfLocalDate === summary.asOfLocalDate
+}
+
+function wellnessSourceByKey(wellness, key) {
+  if (!wellness || !Array.isArray(wellness.sources)) return null
+  for (var i = 0; i < wellness.sources.length; i++)
+    if (wellness.sources[i].source === key) return wellness.sources[i]
+  return null
+}
+
+function wellnessSourceStale(source, nowMs, maximumAgeMs) {
+  if (!source || !isFiniteNumber(nowMs) || !isFiniteNumber(maximumAgeMs)
+      || source.refreshedMs <= 0) return true
+  return Math.max(0, nowMs - source.refreshedMs) > maximumAgeMs
+}
+
+function wellnessCacheReadError(hasWellness, currentError, resultError) {
+  if (resultError === "cache_missing")
+    return hasWellness ? String(currentError || "") : "missing"
+  return typeof resultError === "string" && resultError !== ""
+    ? resultError : "local_storage_error"
+}
+
 function parseDisplayCacheEnvelope(raw, expectedKind) {
   var maxContent = expectedKind === "summary" ? MAX_SUMMARY_CHARS
-    : expectedKind === "activity-trends" ? MAX_ACTIVITY_TRENDS_CHARS : 0
+    : expectedKind === "activity-trends" ? MAX_ACTIVITY_TRENDS_CHARS
+    : expectedKind === "wellness" ? MAX_WELLNESS_CHARS : 0
   if (maxContent === 0) return { ok: false, error: "invalid_kind" }
 
   var text = String(raw || "")
@@ -293,8 +567,9 @@ function parseDisplayCacheEnvelope(raw, expectedKind) {
       || envelope.data.content.length > maxContent)
     return { ok: false, error: "invalid_envelope" }
 
-  var result = expectedKind === "summary"
-    ? parseSummary(envelope.data.content) : parseActivityTrends(envelope.data.content)
+  var result = expectedKind === "summary" ? parseSummary(envelope.data.content)
+    : expectedKind === "activity-trends" ? parseActivityTrends(envelope.data.content)
+    : parseWellness(envelope.data.content)
   result.kind = expectedKind
   return result
 }

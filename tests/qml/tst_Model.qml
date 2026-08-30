@@ -15,6 +15,53 @@ TestCase {
     }
   }
 
+  function emptyWellnessCounts() {
+    return {
+      steps: { value: 0, goal: 0 },
+      bodyBattery: { charged: 0, drained: 0, lowest: 0, highest: 0, latest: 0 },
+      sleep: { score: 0, totalSeconds: 0, deepSeconds: 0, lightSeconds: 0, remSeconds: 0, awakeSeconds: 0 },
+      trainingReadiness: { score: 0, level: 0 },
+      hrv: { weeklyAverageMs: 0, lastNightAverageMs: 0, status: 0, balancedLowMs: 0, balancedUpperMs: 0 },
+      restingHeartRate: { beatsPerMinute: 0 }
+    }
+  }
+
+  function syntheticWellness() {
+    var end = new Date("2026-08-30T00:00:00Z")
+    var days = []
+    for (var offset = 29; offset >= 0; offset--) {
+      var day = new Date(end.getTime() - offset * 86400000).toISOString().slice(0, 10)
+      days.push({
+        date: day,
+        steps: null,
+        bodyBattery: null,
+        sleep: null,
+        trainingReadiness: null,
+        hrv: null,
+        restingHeartRate: null
+      })
+    }
+    var sourceKeys = [
+      "user_summary", "steps", "body_battery", "sleep", "hrv",
+      "resting_heart_rate", "training_readiness"
+    ]
+    return {
+      schemaVersion: 1,
+      generatedAt: "2026-08-30T12:00:00Z",
+      asOfLocalDate: "2026-08-30",
+      collectionEnabled: true,
+      partialCurrentDaySources: ["steps", "bodyBattery"],
+      sources: sourceKeys.map(function(key) {
+        return { source: key, refreshedAt: null, latestValueDate: null, failure: null }
+      }),
+      periods: [
+        { key: "7Days", startDate: "2026-08-24", endDate: "2026-08-30", contributingDays: emptyWellnessCounts() },
+        { key: "30Days", startDate: "2026-08-01", endDate: "2026-08-30", contributingDays: emptyWellnessCounts() }
+      ],
+      days: days
+    }
+  }
+
   function test_synthetic_summary_satisfies_parser() {
     var synthetic = Model.syntheticSummary(Date.parse("2026-08-26T12:00:00Z"))
     var result = Model.parseSummary(JSON.stringify(synthetic))
@@ -149,6 +196,96 @@ TestCase {
     result = Model.parseDisplayCacheEnvelope(JSON.stringify(envelope), "summary")
     verify(!result.ok)
     compare(result.error, "invalid_envelope")
+  }
+
+  function test_wellness_parser_accepts_missing_dates_as_null_not_zero() {
+    var result = Model.parseWellness(JSON.stringify(syntheticWellness()))
+
+    verify(result.ok)
+    compare(result.wellness.days.length, 30)
+    compare(result.wellness.days[29].date, "2026-08-30")
+    compare(result.wellness.days[29].steps, null)
+    compare(result.wellness.periods[0].contributingDays.steps.value, 0)
+    compare(result.wellness.partialCurrentDaySources, ["steps", "bodyBattery"])
+  }
+
+  function test_wellness_parser_accepts_zero_and_checks_contributor_counts() {
+    var wellness = syntheticWellness()
+    wellness.days[29].steps = { value: 0, goal: 8000 }
+    wellness.periods[0].contributingDays.steps = { value: 1, goal: 1 }
+    wellness.periods[1].contributingDays.steps = { value: 1, goal: 1 }
+    wellness.sources[0].latestValueDate = "2026-08-30"
+    wellness.sources[1].latestValueDate = "2026-08-30"
+
+    verify(Model.parseWellness(JSON.stringify(wellness)).ok)
+
+    wellness.periods[0].contributingDays.steps.value = 0
+    var result = Model.parseWellness(JSON.stringify(wellness))
+    verify(!result.ok)
+    compare(result.error, "invalid_period")
+  }
+
+  function test_wellness_parser_rejects_malformed_shape_date_and_source_state() {
+    var wellness = syntheticWellness()
+    wellness.days[0].steps = { value: 1, goal: null, route: "private" }
+    verify(!Model.parseWellness(JSON.stringify(wellness)).ok)
+
+    wellness = syntheticWellness()
+    wellness.days[0].date = "2026-08-02"
+    verify(!Model.parseWellness(JSON.stringify(wellness)).ok)
+
+    wellness = syntheticWellness()
+    wellness.sources[0].failure = "private_failure"
+    verify(!Model.parseWellness(JSON.stringify(wellness)).ok)
+  }
+
+  function test_wellness_parser_rejects_oversized_and_missing_content() {
+    compare(Model.parseWellness("").error, "missing")
+    compare(Model.parseWellness("x".repeat(65537)).error, "too_large")
+  }
+
+  function test_wellness_display_cache_envelope_uses_explicit_kind() {
+    var envelope = displayCacheEnvelope("wellness", JSON.stringify(syntheticWellness()))
+    var result = Model.parseDisplayCacheEnvelope(JSON.stringify(envelope), "wellness")
+
+    verify(result.ok)
+    compare(result.kind, "wellness")
+    compare(result.wellness.asOfLocalDate, "2026-08-30")
+
+    envelope.data.kind = "summary"
+    verify(!Model.parseDisplayCacheEnvelope(JSON.stringify(envelope), "wellness").ok)
+  }
+
+  function test_wellness_summary_date_consistency_is_informational() {
+    var wellness = Model.parseWellness(JSON.stringify(syntheticWellness())).wellness
+    var summary = Model.parseSummary(JSON.stringify(
+      Model.syntheticSummary(Date.parse("2026-08-30T12:00:00Z")))).summary
+
+    verify(Model.wellnessSummaryDateMatches(wellness, summary))
+    wellness.asOfLocalDate = "2026-08-29"
+    verify(!Model.wellnessSummaryDateMatches(wellness, summary))
+    verify(summary !== null)
+  }
+
+  function test_wellness_source_staleness_uses_bounded_freshness_only() {
+    var wellness = syntheticWellness()
+    wellness.sources[1].refreshedAt = "2026-08-30T11:00:00Z"
+    var parsed = Model.parseWellness(JSON.stringify(wellness)).wellness
+    var steps = Model.wellnessSourceByKey(parsed, "steps")
+
+    verify(!Model.wellnessSourceStale(steps, Date.parse("2026-08-30T12:00:00Z"), 3600000))
+    verify(Model.wellnessSourceStale(steps, Date.parse("2026-08-30T12:00:01Z"), 3600000))
+    verify(Model.wellnessSourceStale(Model.wellnessSourceByKey(parsed, "sleep"),
+      Date.parse("2026-08-30T12:00:00Z"), 3600000))
+  }
+
+  function test_wellness_cache_missing_state_respects_preserved_memory() {
+    compare(Model.wellnessCacheReadError(false, "", "cache_missing"), "missing")
+    compare(Model.wellnessCacheReadError(true, "", "cache_missing"), "")
+    compare(Model.wellnessCacheReadError(
+      true, "invalid_period", "cache_missing"), "invalid_period")
+    compare(Model.wellnessCacheReadError(false, "", "local_storage_error"),
+      "local_storage_error")
   }
 
   function test_summary_cache_missing_state_respects_preserved_memory() {

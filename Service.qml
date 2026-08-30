@@ -16,7 +16,9 @@ Item {
   property int refreshMinutes: 30
   property var cachedSummary: null
   property var cachedActivityTrends: null
+  property var cachedWellness: null
   property string activityTrendsCacheError: ""
+  property string wellnessCacheError: ""
   property string failureKind: ""
   property string failureCode: ""
   property string cacheError: ""
@@ -26,8 +28,10 @@ Item {
   property bool refreshTimedOut: false
   property bool summaryCacheTimedOut: false
   property bool activityTrendsCacheTimedOut: false
+  property bool wellnessCacheTimedOut: false
   property bool summaryCacheReloadPending: false
   property bool activityTrendsCacheReloadPending: false
+  property bool wellnessCacheReloadPending: false
   property var activityPage: null
   property var activityDetail: null
   property string activityViewError: ""
@@ -81,6 +85,9 @@ Item {
   readonly property var candidateActivityTrends: demoMode
     ? Model.syntheticActivityTrends(nowMs) : cachedActivityTrends
   readonly property var activityTrends: Model.trendsForSummary(candidateActivityTrends, summary)
+  readonly property var wellness: cachedWellness
+  readonly property bool wellnessSummaryDateConsistent: wellness === null || summary === null
+    || Model.wellnessSummaryDateMatches(wellness, summary)
   readonly property bool hasSummary: summary !== null
   readonly property double summaryAgeMs: hasSummary ? Math.max(0, nowMs - Number(summary.generatedMs || 0)) : 0
   readonly property bool summaryStale: hasSummary && !demoMode && summaryAgeMs > Math.max(60, refreshMinutes * 2) * 60000
@@ -106,7 +113,7 @@ Item {
   readonly property bool updateCheckRunning: updateStage !== "" || updateHelperProcess.running
     || updateGitProcess.running
   readonly property bool displayCacheRunning: summaryCacheProcess.running
-    || activityTrendsCacheProcess.running
+    || activityTrendsCacheProcess.running || wellnessCacheProcess.running
   readonly property bool processRunning: uvProbe.running || cacheRootProcess.running
     || authStatusProcess.running || refreshProcess.running || activityViewRunning
     || displayCacheRunning
@@ -137,10 +144,13 @@ Item {
       activityDetailProcess.running = false
       summaryCacheProcess.running = false
       activityTrendsCacheProcess.running = false
+      wellnessCacheProcess.running = false
       summaryCacheDeadline.stop()
       activityTrendsCacheDeadline.stop()
+      wellnessCacheDeadline.stop()
       summaryCacheReloadPending = false
       activityTrendsCacheReloadPending = false
+      wellnessCacheReloadPending = false
       refreshing = false
       stopRecovery()
       failureKind = ""
@@ -387,9 +397,25 @@ Item {
     activityTrendsCacheDeadline.restart()
   }
 
+  function requestWellnessCacheReload() {
+    if (demoMode || !cacheRootReady || uvPath === "" || sourceDir === "") return
+    if (wellnessCacheProcess.running) {
+      wellnessCacheReloadPending = true
+      return
+    }
+    wellnessCacheReloadPending = false
+    wellnessCacheTimedOut = false
+    wellnessCacheProcess.command = backendCommand([
+      "cache", "read", "--json", "--kind", "wellness"
+    ])
+    wellnessCacheProcess.running = true
+    wellnessCacheDeadline.restart()
+  }
+
   function requestDisplayCacheReload() {
     requestSummaryCacheReload()
     requestActivityTrendsCacheReload()
+    requestWellnessCacheReload()
   }
 
   function prepareCacheRoot() {
@@ -669,6 +695,22 @@ Item {
     }
   }
 
+  function handleWellnessCache(exitCode, raw) {
+    wellnessCacheDeadline.stop()
+    var result = wellnessCacheTimedOut
+      ? { ok: false, error: "timeout" }
+      : Model.parseDisplayCacheEnvelope(raw, "wellness")
+    if (exitCode === 0 && result.ok) {
+      cachedWellness = result.wellness
+      wellnessCacheError = ""
+    } else wellnessCacheError = Model.wellnessCacheReadError(
+      cachedWellness !== null, wellnessCacheError, result.error)
+    if (wellnessCacheReloadPending) {
+      wellnessCacheReloadPending = false
+      requestWellnessCacheReload()
+    }
+  }
+
   function handleActivityList(exitCode, raw) {
     var result = Model.parseActivityPageEnvelope(raw, activityListExpected)
     if (activityListTimedOut) {
@@ -812,6 +854,15 @@ Item {
   }
 
   Process {
+    id: wellnessCacheProcess
+    command: []
+    stdout: StdioCollector { id: wellnessCacheStdout; waitForEnd: true }
+    onExited: function(exitCode) {
+      root.handleWellnessCache(exitCode, wellnessCacheStdout.text)
+    }
+  }
+
+  Process {
     id: activityListProcess
     command: []
     stdout: StdioCollector { id: activityListStdout; waitForEnd: true }
@@ -891,6 +942,15 @@ Item {
     onTriggered: {
       root.activityTrendsCacheTimedOut = true
       activityTrendsCacheProcess.running = false
+    }
+  }
+
+  Timer {
+    id: wellnessCacheDeadline
+    interval: 5000
+    onTriggered: {
+      root.wellnessCacheTimedOut = true
+      wellnessCacheProcess.running = false
     }
   }
 
