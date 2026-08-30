@@ -29,7 +29,7 @@ Keep this file current when architecture, security boundaries, development comma
 Use these boundaries unless an approved design change updates this file:
 
 1. `Service.qml` is the singleton owner of scheduling, process state, cached summaries, errors, and bounded suspend/connectivity recovery.
-2. `BarWidget.qml` and its nested `Panel.qml` render state from the singleton service. They do not authenticate, query Garmin, or aggregate activities.
+2. `BarWidget.qml` and its nested production `Panel.qml` render state from the singleton service. The dormant 0.2 `PanelShell.qml` and its page components are not a manifest entry point until the complete flow is accepted. QML views do not authenticate, query Garmin, or aggregate activities.
 3. The Python backend is a short-lived command. There is no persistent Python daemon or systemd service.
 4. Python owns authentication, Garmin requests, validation, SQLite, aggregation, display JSON generation, and private update-cadence metadata.
 5. QML reads bounded summary, activity-trends, activity-list, activity-detail, wellness, and update-check contracts. It never opens private cache files, tokens, raw Garmin responses, or SQLite directly. Summary, trend, and wellness cache loads go through a short-lived hardened backend command that enforces nonblocking no-follow opens, regular-file and ownership checks, strict byte limits, and a bounded response. The singleton service may run bounded `/usr/bin/git` commands only for the fixed public update check documented below.
@@ -188,6 +188,13 @@ omarchy plugin validate "$PLUGIN_DIR"
 qmllint -I "$OMARCHY_PATH/shell" \
   "$PLUGIN_DIR/BarWidget.qml" \
   "$PLUGIN_DIR/Panel.qml" \
+  "$PLUGIN_DIR/PanelShell.qml" \
+  "$PLUGIN_DIR/PanelSession.qml" \
+  "$PLUGIN_DIR/OverviewShellPage.qml" \
+  "$PLUGIN_DIR/WellnessShellPage.qml" \
+  "$PLUGIN_DIR/ActivitiesView.qml" \
+  "$PLUGIN_DIR/SettingsView.qml" \
+  "$PLUGIN_DIR/DomainStatusRow.qml" \
   "$PLUGIN_DIR/ActivityTimeChart.qml" \
   "$PLUGIN_DIR/Service.qml"
 ```

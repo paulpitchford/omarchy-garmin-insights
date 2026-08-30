@@ -9,12 +9,19 @@ Column {
   id: root
 
   property var period: null
+  property string metricKey: "durationSeconds"
+  property bool imperial: false
   property color foreground: Color.foreground
   property color dim: Color.muted
   property string fontFamily: Style.font.family
 
   readonly property var points: period && Array.isArray(period.points) ? period.points : []
-  readonly property real peakDuration: Model.trendDurationPeak(period)
+  readonly property var metricKeys: [
+    "durationSeconds", "distanceMetres", "elevationGainMetres", "energyJoules"
+  ]
+  readonly property string normalizedMetricKey: metricKeys.indexOf(metricKey) === -1
+    ? "durationSeconds" : metricKey
+  readonly property real peakValue: metricPeak()
   readonly property int activePointCount: {
     var count = 0
     for (var i = 0; i < points.length; i++)
@@ -41,13 +48,38 @@ Column {
       : shortDate(point.startDate) + "–" + shortDate(point.endDate)
   }
 
+  function metricLabel() {
+    if (normalizedMetricKey === "distanceMetres") return "Distance"
+    if (normalizedMetricKey === "elevationGainMetres") return "Elevation"
+    if (normalizedMetricKey === "energyJoules") return "Energy"
+    return "Time"
+  }
+
+  function metricPeak() {
+    var peak = 0
+    for (var index = 0; index < points.length; index++) {
+      var metric = points[index][normalizedMetricKey]
+      if (metric && metric.value !== null) peak = Math.max(peak, Number(metric.value))
+    }
+    return peak
+  }
+
+  function formatMetric(value) {
+    if (normalizedMetricKey === "distanceMetres") return Model.formatDistance(value, imperial)
+    if (normalizedMetricKey === "elevationGainMetres") return Model.formatElevation(value, imperial)
+    if (normalizedMetricKey === "energyJoules") return Model.formatEnergy(value, imperial)
+    return Model.formatDuration(value)
+  }
+
   function pointTooltip(point) {
-    if (!point) return ""
-    var duration = point.durationSeconds.value === null
-      ? "No duration data" : Model.formatDuration(point.durationSeconds.value)
+    if (!point || !point[normalizedMetricKey]) return ""
+    var value = point[normalizedMetricKey].value
+    var missingLabel = normalizedMetricKey === "durationSeconds"
+      ? "duration" : metricLabel().toLowerCase()
+    var metric = value === null ? "No " + missingLabel + " data" : formatMetric(value)
     var suffix = point.partial ? " · partial" : ""
     return pointDateText(point) + " · " + Model.formatCount(point.activityCount)
-      + " · " + duration + suffix
+      + " · " + metric + suffix
   }
 
   function summaryText() {
@@ -65,7 +97,7 @@ Column {
 
   PanelSectionHeader {
     width: parent.width
-    text: "ACTIVITY TIME"
+    text: "ACTIVITY " + root.metricLabel().toUpperCase()
     foreground: root.foreground
     fontFamily: root.fontFamily
   }
@@ -129,21 +161,21 @@ Column {
           }
 
           Rectangle {
-            visible: pointItem.modelData.durationSeconds.value !== null
-              && pointItem.modelData.durationSeconds.value > 0
+            visible: pointItem.modelData[root.normalizedMetricKey].value !== null
+              && pointItem.modelData[root.normalizedMetricKey].value > 0
             anchors.left: barTrack.left
             anchors.right: barTrack.right
             anchors.bottom: barTrack.bottom
-            height: root.peakDuration > 0
+            height: root.peakValue > 0
               ? Math.max(Style.space(2), barTrack.height
-                * pointItem.modelData.durationSeconds.value / root.peakDuration) : 0
+                * pointItem.modelData[root.normalizedMetricKey].value / root.peakValue) : 0
             radius: barTrack.radius
             color: pointItem.modelData.partial
               ? root.foreground : root.alpha(root.foreground, 0.58)
           }
 
           Rectangle {
-            visible: pointItem.modelData.durationSeconds.value === null
+            visible: pointItem.modelData[root.normalizedMetricKey].value === null
             anchors.horizontalCenter: barTrack.horizontalCenter
             anchors.bottom: barTrack.bottom
             width: barTrack.width
