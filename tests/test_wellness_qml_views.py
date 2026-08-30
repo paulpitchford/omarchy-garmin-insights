@@ -24,6 +24,15 @@ def test_wellness_trends_show_one_of_six_metric_families() -> None:
     assert "familyKey: root.trendFamilyKey" in wellness
 
 
+def test_wellness_cursor_is_clamped_when_dynamic_control_rows_disappear() -> None:
+    wellness = (ROOT / "WellnessShellPage.qml").read_text(encoding="utf-8")
+
+    assert (
+        "onCursorCountChanged: cursorIndex = Math.max(0, Math.min(cursorCount - 1, cursorIndex))"
+        in wellness
+    )
+
+
 def test_wellness_trends_offer_only_seven_and_thirty_day_ranges() -> None:
     wellness = (ROOT / "WellnessShellPage.qml").read_text(encoding="utf-8")
 

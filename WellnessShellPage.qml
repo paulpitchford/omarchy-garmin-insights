@@ -48,6 +48,8 @@ Column {
 
   signal viewRequested(int index)
 
+  onCursorCountChanged: cursorIndex = Math.max(0, Math.min(cursorCount - 1, cursorIndex))
+
   function setTrendFamily(index) {
     trendFamilyIndex = Math.max(0, Math.min(trendFamilyKeys.length - 1, index))
     trendFamilyCursorIndex = trendFamilyIndex
