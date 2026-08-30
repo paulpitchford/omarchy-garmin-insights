@@ -54,6 +54,34 @@ class WellnessSourceFreshness:
     refreshed_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class WellnessCadenceState:
+    """Private request-attempt metadata used to enforce wellness cadence."""
+
+    historical_date: date | None = None
+    full_reconciliation_date: date | None = None
+    backfill_at: datetime | None = None
+    current_steps_at: datetime | None = None
+    current_body_battery_at: datetime | None = None
+    current_sleep_at: datetime | None = None
+    current_training_readiness_at: datetime | None = None
+
+
+_CADENCE_KEYS = {
+    "wellness_historical_date": "historical_date",
+    "wellness_full_reconciliation_date": "full_reconciliation_date",
+    "wellness_backfill_at": "backfill_at",
+    "wellness_current_steps_at": "current_steps_at",
+    "wellness_current_body_battery_at": "current_body_battery_at",
+    "wellness_current_sleep_at": "current_sleep_at",
+    "wellness_current_training_readiness_at": "current_training_readiness_at",
+}
+_DATE_CADENCE_KEYS = {
+    "wellness_historical_date",
+    "wellness_full_reconciliation_date",
+}
+
+
 _UPSERT_WELLNESS = """
 INSERT INTO wellness_daily (
     account_fingerprint,
@@ -477,6 +505,89 @@ class WellnessRepository:
         if row is None or len(row) != 1 or type(row[0]) is not int or row[0] not in {0, 1}:
             raise WellnessDatabaseError("stored wellness collection state is invalid")
         return bool(row[0])
+
+    def cadence_state(self) -> WellnessCadenceState:
+        """Return validated private request-attempt metadata for this account."""
+        with self._read_connection() as connection:
+            if connection is None or not self._account_matches(connection):
+                return WellnessCadenceState()
+            rows = connection.execute(
+                """
+                SELECT key, value FROM sync_state
+                WHERE key IN (?, ?, ?, ?, ?, ?, ?)
+                ORDER BY key
+                """,
+                tuple(_CADENCE_KEYS),
+            ).fetchall()
+        values: dict[str, date | datetime | None] = {}
+        try:
+            for raw_key, raw_value in rows:
+                if not isinstance(raw_key, str) or not isinstance(raw_value, str):
+                    raise ValueError("cadence row has an unexpected shape")
+                field_name = _CADENCE_KEYS[raw_key]
+                if raw_key in _DATE_CADENCE_KEYS:
+                    parsed_date = date.fromisoformat(raw_value)
+                    if parsed_date.isoformat() != raw_value:
+                        raise ValueError("cadence date is invalid")
+                    values[field_name] = parsed_date
+                else:
+                    parsed_at = datetime.fromisoformat(raw_value)
+                    _validate_timestamp(parsed_at)
+                    values[field_name] = parsed_at
+            return WellnessCadenceState(**values)  # type: ignore[arg-type]
+        except (KeyError, TypeError, ValueError) as error:
+            raise WellnessDatabaseError("stored wellness cadence is invalid") from error
+
+    def reserve_cadence(
+        self,
+        *,
+        today: date,
+        attempted_at: datetime,
+        historical: bool,
+        full_reconciliation: bool,
+        backfill: bool,
+        current_steps: bool,
+        current_body_battery: bool,
+        current_sleep: bool,
+        current_training_readiness: bool,
+    ) -> None:
+        """Record planned request groups atomically before their first data call."""
+        if type(today) is not date:
+            raise ValueError("today is invalid")
+        attempted_at_text = _validate_timestamp(attempted_at)
+        updates = {
+            "wellness_historical_date": today.isoformat() if historical else None,
+            "wellness_full_reconciliation_date": (
+                today.isoformat() if full_reconciliation else None
+            ),
+            "wellness_backfill_at": attempted_at_text if backfill else None,
+            "wellness_current_steps_at": attempted_at_text if current_steps else None,
+            "wellness_current_body_battery_at": (
+                attempted_at_text if current_body_battery else None
+            ),
+            "wellness_current_sleep_at": attempted_at_text if current_sleep else None,
+            "wellness_current_training_readiness_at": (
+                attempted_at_text if current_training_readiness else None
+            ),
+        }
+        selected = tuple((key, value) for key, value in updates.items() if value is not None)
+        if not selected:
+            return
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                self._bind_account(connection)
+                connection.executemany(
+                    """
+                    INSERT INTO sync_state (key, value) VALUES (?, ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                    """,
+                    selected,
+                )
+                connection.execute("COMMIT")
+            finally:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
 
     def set_collection_enabled(self, enabled: bool) -> None:
         """Set collection state idempotently without deleting retained wellness values."""

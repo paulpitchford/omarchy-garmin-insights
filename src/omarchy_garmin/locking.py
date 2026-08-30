@@ -1,4 +1,4 @@
-"""Owner-only non-blocking process lock for activity refreshes."""
+"""Owner-only non-blocking process lock shared by Garmin refresh domains."""
 
 from __future__ import annotations
 
@@ -33,8 +33,8 @@ class RefreshLockStorageError(RefreshLockError):
 
 
 @contextmanager
-def activity_refresh_lock(lock_path: Path | None) -> Iterator[None]:
-    """Acquire the owner-only activity refresh lock without waiting."""
+def sync_refresh_lock(lock_path: Path | None) -> Iterator[None]:
+    """Acquire the owner-only Garmin refresh lock without waiting."""
     if lock_path is None:
         raise RefreshRuntimeUnavailableError("a private runtime directory is required")
 
@@ -51,7 +51,7 @@ def activity_refresh_lock(lock_path: Path | None) -> Iterator[None]:
             try:
                 fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as error:
-                raise RefreshInProgressError("another activity refresh is running") from error
+                raise RefreshInProgressError("another Garmin refresh is running") from error
         except RefreshInProgressError:
             raise
         except (OSError, UnsafeStoragePathError) as error:
@@ -60,3 +60,7 @@ def activity_refresh_lock(lock_path: Path | None) -> Iterator[None]:
     finally:
         if descriptor is not None:
             os.close(descriptor)
+
+
+# Preserve the activity-facing name while both domains use the same lock file.
+activity_refresh_lock = sync_refresh_lock

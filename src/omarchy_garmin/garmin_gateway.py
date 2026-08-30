@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import signal
+import time
+import unicodedata
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import date
 from types import FrameType
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from garminconnect import Garmin  # type: ignore[import-untyped]
 from garminconnect.exceptions import (  # type: ignore[import-untyped]
@@ -34,12 +36,33 @@ from omarchy_garmin.sync import (
     ActivityRateLimitedError,
     ActivityRemoteServiceError,
 )
+from omarchy_garmin.wellness import (
+    InvalidWellnessDataError,
+    UnsupportedWellnessSourceError,
+    WellnessSource,
+)
+from omarchy_garmin.wellness_sync import (
+    WellnessAuthenticationError,
+    WellnessGatewayConnection,
+    WellnessInvalidDataError,
+    WellnessNetworkError,
+    WellnessRateLimitedError,
+    WellnessRemoteServiceError,
+    WellnessSyncConfigurationError,
+    WellnessSyncError,
+)
 
 _SOCIAL_PROFILE_PATH = "/userprofile-service/socialProfile"
 _ACCOUNT_ID_MAX_LENGTH = 64
 _EMPTY_INLINE_TOKENSTORE = "{}"
 _ACTIVITY_RETRY_ATTEMPTS = 1
 _ACTIVITY_DEADLINE_SECONDS = 120
+_WELLNESS_DEADLINE_SECONDS = 120
+_WELLNESS_MAX_HTTP_ATTEMPTS = 20
+_WELLNESS_RETRY_DELAY_SECONDS = 1.0
+_MAX_DISPLAY_NAME_LENGTH = 100
+
+_ResultT = TypeVar("_ResultT")
 
 
 class _RequestDeadlineExpired(TimeoutError):
@@ -217,3 +240,230 @@ class GarminActivityGateway:
             raise ActivityNetworkError("Garmin Connect could not be reached") from error
         except _RequestDeadlineExpired as error:
             raise ActivityNetworkError("Garmin activity request exceeded its deadline") from error
+
+
+class _GarminWellnessConnection:
+    """Expose only approved read-only wellness methods for one verified client."""
+
+    def __init__(
+        self,
+        client: Any,
+        account_id: str,
+        *,
+        sleeper: Callable[[float], None],
+    ) -> None:
+        self._client = client
+        self._account_id = account_id
+        self._sleeper = sleeper
+        self._request_attempts = 0
+        self._retry_used = False
+
+    @property
+    def request_attempts(self) -> int:
+        """Return all verification and data HTTP attempts in this command."""
+        return self._request_attempts
+
+    def refreshed_session(self) -> AuthenticatedSession:
+        """Return validated refreshed token material without retaining profile data."""
+        token_text: object = self._client.client.dumps()
+        if not isinstance(token_text, str):
+            raise WellnessInvalidDataError("Garmin returned invalid session data")
+        token_json = token_text.encode("utf-8")
+        try:
+            validate_token_json(token_json)
+        except ValueError as error:
+            raise WellnessInvalidDataError("Garmin returned invalid session data") from error
+        return AuthenticatedSession(account_id=self._account_id, token_json=token_json)
+
+    def user_summary(self, requested_date: date) -> object:
+        return self._call(
+            WellnessSource.USER_SUMMARY,
+            lambda: self._client.get_user_summary(requested_date.isoformat()),
+        )
+
+    def daily_steps(self, start_date: date, end_date: date) -> object:
+        return self._call(
+            WellnessSource.STEPS,
+            lambda: self._client.get_daily_steps(start_date.isoformat(), end_date.isoformat()),
+        )
+
+    def body_battery(self, start_date: date, end_date: date) -> object:
+        return self._call(
+            WellnessSource.BODY_BATTERY,
+            lambda: self._client.get_body_battery(start_date.isoformat(), end_date.isoformat()),
+        )
+
+    def sleep_range(self, start_date: date, end_date: date) -> object:
+        return self._call(
+            WellnessSource.SLEEP,
+            lambda: self._client.get_sleep_daily(start_date.isoformat(), end_date.isoformat()),
+        )
+
+    def sleep_detail(self, requested_date: date) -> object:
+        return self._call(
+            WellnessSource.SLEEP,
+            lambda: self._client.get_sleep_data(requested_date.isoformat()),
+        )
+
+    def hrv_range(self, start_date: date, end_date: date) -> object:
+        return self._call(
+            WellnessSource.HRV,
+            lambda: self._client.get_hrv_data_range(start_date.isoformat(), end_date.isoformat()),
+        )
+
+    def hrv_detail(self, requested_date: date) -> object:
+        return self._call(
+            WellnessSource.HRV,
+            lambda: self._client.get_hrv_data(requested_date.isoformat()),
+        )
+
+    def resting_heart_rate(self, start_date: date, end_date: date) -> object:
+        return self._call(
+            WellnessSource.RESTING_HEART_RATE,
+            lambda: self._client.get_rhr_daily(start_date.isoformat(), end_date.isoformat()),
+        )
+
+    def training_readiness(self, requested_date: date) -> object:
+        return self._call(
+            WellnessSource.TRAINING_READINESS,
+            lambda: self._client.get_training_readiness(requested_date.isoformat()),
+        )
+
+    def verify_profile(self) -> object:
+        """Make the one fixed public account-verification request."""
+        return self._call(None, lambda: self._client.connectapi(_SOCIAL_PROFILE_PATH))
+
+    def _call(
+        self,
+        source: WellnessSource | None,
+        operation: Callable[[], _ResultT],
+    ) -> _ResultT:
+        while True:
+            if self._request_attempts >= _WELLNESS_MAX_HTTP_ATTEMPTS:
+                raise WellnessSyncConfigurationError("wellness HTTP attempt budget exhausted")
+            self._request_attempts += 1
+            try:
+                return operation()
+            except (
+                GarminConnectAuthenticationError,
+                GarminConnectTooManyRequestsError,
+                GarminConnectConnectionError,
+            ) as error:
+                if self._handle_dependency_error(error, source):
+                    continue
+            except _RequestDeadlineExpired as error:
+                raise WellnessNetworkError(
+                    "Garmin wellness request exceeded its deadline"
+                ) from error
+            except (AttributeError, TypeError, ValueError) as error:
+                if source is None:
+                    raise WellnessInvalidDataError(
+                        "Garmin account verification data is invalid"
+                    ) from error
+                raise InvalidWellnessDataError(source) from error
+
+    def _handle_dependency_error(
+        self,
+        error: BaseException,
+        source: WellnessSource | None,
+    ) -> bool:
+        original = error
+        if isinstance(error, GarminConnectAuthenticationError):
+            nested = GarminAuthGateway._nested_dependency_error(error)
+            if nested is None:
+                raise WellnessAuthenticationError("stored Garmin tokens were rejected") from error
+            error = nested
+        if isinstance(error, GarminConnectTooManyRequestsError):
+            raise WellnessRateLimitedError("Garmin wellness request was rate limited") from original
+        if not isinstance(error, GarminConnectConnectionError):  # pragma: no cover - guarded union
+            raise WellnessRemoteServiceError("Garmin wellness request failed") from original
+        if self._retryable(error):
+            return True
+        raise self._connection_error(error, source) from original
+
+    def _retryable(self, error: BaseException) -> bool:
+        status = self._status(error)
+        retryable = status is None or status >= 500
+        if not retryable or self._retry_used:
+            return False
+        self._retry_used = True
+        self._sleeper(_WELLNESS_RETRY_DELAY_SECONDS)
+        return True
+
+    @classmethod
+    def _connection_error(
+        cls,
+        error: BaseException,
+        source: WellnessSource | None,
+    ) -> WellnessSyncError | UnsupportedWellnessSourceError:
+        status = cls._status(error)
+        if status == 404 and source is not None:
+            return UnsupportedWellnessSourceError(source)
+        if status in {401, 403}:
+            return WellnessAuthenticationError("stored Garmin tokens were rejected")
+        if status == 429:
+            return WellnessRateLimitedError("Garmin wellness request was rate limited")
+        if status is None:
+            return WellnessNetworkError("Garmin Connect could not be reached")
+        return WellnessRemoteServiceError("Garmin wellness request failed")
+
+    @staticmethod
+    def _status(error: BaseException) -> int | None:
+        response = getattr(error, "response", None)
+        status = getattr(response, "status_code", None)
+        return status if isinstance(status, int) and not isinstance(status, bool) else None
+
+
+class GarminWellnessGateway:
+    """Create one deadline-bound Garmin client for approved wellness requests."""
+
+    def __init__(self, *, sleeper: Callable[[float], None] = time.sleep) -> None:
+        """Initialize the explicit retry-delay boundary."""
+        self._sleeper = sleeper
+
+    @contextmanager
+    def connect(self, token_json: bytes) -> Iterator[WellnessGatewayConnection]:
+        """Load dedicated tokens, verify the account, and enforce one deadline."""
+        try:
+            token_text = token_json.decode("utf-8")
+            validate_token_json(token_json)
+        except UnicodeDecodeError as error:
+            raise WellnessInvalidDataError("stored Garmin tokens are not UTF-8") from error
+        except ValueError as error:
+            raise WellnessInvalidDataError("stored Garmin tokens are invalid") from error
+
+        client = Garmin(retry_attempts=0, verify_login=True)
+        connection = _GarminWellnessConnection(
+            client,
+            "",
+            sleeper=self._sleeper,
+        )
+        try:
+            with _request_deadline(_WELLNESS_DEADLINE_SECONDS):
+                client.client.loads(token_text)
+                profile = connection.verify_profile()
+                try:
+                    session = GarminAuthGateway._session(client, profile)
+                    client.display_name = self._display_name(profile)
+                except InvalidAuthResponseError as error:
+                    raise WellnessInvalidDataError(
+                        "Garmin account verification data is invalid"
+                    ) from error
+                connection._account_id = session.account_id
+                yield connection
+        except _RequestDeadlineExpired as error:
+            raise WellnessNetworkError("Garmin wellness request exceeded its deadline") from error
+
+    @staticmethod
+    def _display_name(profile: object) -> str:
+        if not isinstance(profile, dict):
+            raise InvalidAuthResponseError("Garmin profile response is not an object")
+        value = profile.get("displayName")
+        if (
+            not isinstance(value, str)
+            or not value
+            or len(value) > _MAX_DISPLAY_NAME_LENGTH
+            or any(unicodedata.category(character).startswith("C") for character in value)
+        ):
+            raise InvalidAuthResponseError("Garmin profile display name is invalid")
+        return value

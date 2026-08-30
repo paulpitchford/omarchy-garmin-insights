@@ -24,6 +24,7 @@ from omarchy_garmin.auth import (
 from omarchy_garmin.garmin_gateway import (
     GarminActivityGateway,
     GarminAuthGateway,
+    GarminWellnessGateway,
     _request_deadline,
     _RequestDeadlineExpired,
 )
@@ -33,6 +34,20 @@ from omarchy_garmin.sync import (
     ActivityNetworkError,
     ActivityRateLimitedError,
     ActivityRemoteServiceError,
+)
+from omarchy_garmin.wellness import (
+    InvalidWellnessDataError,
+    UnsupportedWellnessSourceError,
+    WellnessSource,
+)
+from omarchy_garmin.wellness_sync import (
+    WellnessAuthenticationError,
+    WellnessInvalidDataError,
+    WellnessNetworkError,
+    WellnessRateLimitedError,
+    WellnessRemoteServiceError,
+    WellnessSyncConfigurationError,
+    WellnessSyncError,
 )
 
 
@@ -53,7 +68,11 @@ def garmin_constructor() -> Iterator[Mock]:
         token_client = create_autospec(Client, instance=True)
         token_client.dumps.return_value = _token()
         garmin.client = token_client
-        garmin.connectapi.return_value = {"profileId": 10101, "email": "ignored@example.test"}
+        garmin.connectapi.return_value = {
+            "profileId": 10101,
+            "displayName": "synthetic_runner",
+            "email": "ignored@example.test",
+        }
         yield constructor
 
 
@@ -353,6 +372,249 @@ def test_complete_activity_request_deadline_maps_to_network_failure(
         )
 
     garmin_constructor.return_value.login.assert_not_called()
+
+
+def test_wellness_connection_uses_only_approved_methods_and_zero_dependency_retries(
+    garmin_constructor: Mock,
+) -> None:
+    garmin = garmin_constructor.return_value
+    garmin.get_user_summary.return_value = {"calendarDate": "2026-08-26"}
+    garmin.get_daily_steps.return_value = []
+    garmin.get_body_battery.return_value = []
+    garmin.get_sleep_daily.return_value = []
+    garmin.get_sleep_data.return_value = None
+    garmin.get_hrv_data_range.return_value = None
+    garmin.get_hrv_data.return_value = None
+    garmin.get_rhr_daily.return_value = []
+    garmin.get_training_readiness.return_value = []
+
+    with GarminWellnessGateway(sleeper=Mock()).connect(_token().encode()) as connection:
+        assert connection.user_summary(date(2026, 8, 26)) == {"calendarDate": "2026-08-26"}
+        assert connection.daily_steps(date(2026, 8, 1), date(2026, 8, 26)) == []
+        assert connection.body_battery(date(2026, 8, 20), date(2026, 8, 26)) == []
+        assert connection.sleep_range(date(2026, 8, 1), date(2026, 8, 26)) == []
+        assert connection.sleep_detail(date(2026, 8, 26)) is None
+        assert connection.hrv_range(date(2026, 8, 1), date(2026, 8, 26)) is None
+        assert connection.hrv_detail(date(2026, 8, 26)) is None
+        assert connection.resting_heart_rate(date(2026, 8, 1), date(2026, 8, 26)) == []
+        assert connection.training_readiness(date(2026, 8, 26)) == []
+        assert connection.request_attempts == 10
+
+    garmin_constructor.assert_called_once_with(retry_attempts=0, verify_login=True)
+    garmin.client.loads.assert_called_once_with(_token())
+    garmin.connectapi.assert_called_once_with("/userprofile-service/socialProfile")
+    assert garmin.display_name == "synthetic_runner"
+    garmin.get_user_summary.assert_called_once_with("2026-08-26")
+    garmin.get_daily_steps.assert_called_once_with("2026-08-01", "2026-08-26")
+    garmin.get_body_battery.assert_called_once_with("2026-08-20", "2026-08-26")
+    garmin.get_sleep_daily.assert_called_once_with("2026-08-01", "2026-08-26")
+    garmin.get_sleep_data.assert_called_once_with("2026-08-26")
+    garmin.get_hrv_data_range.assert_called_once_with("2026-08-01", "2026-08-26")
+    garmin.get_hrv_data.assert_called_once_with("2026-08-26")
+    garmin.get_rhr_daily.assert_called_once_with("2026-08-01", "2026-08-26")
+    garmin.get_training_readiness.assert_called_once_with("2026-08-26")
+
+
+def test_wellness_retries_one_http_5xx_then_succeeds(garmin_constructor: Mock) -> None:
+    failure = GarminConnectConnectionError("private server body")
+    failure.response = SimpleNamespace(status_code=503)
+    garmin = garmin_constructor.return_value
+    garmin.get_daily_steps.side_effect = [failure, []]
+    sleeper = Mock()
+
+    with GarminWellnessGateway(sleeper=sleeper).connect(_token().encode()) as connection:
+        assert connection.daily_steps(date(2026, 8, 1), date(2026, 8, 26)) == []
+        assert connection.request_attempts == 3
+
+    sleeper.assert_called_once_with(1.0)
+    assert garmin.get_daily_steps.call_count == 2
+
+
+def test_wellness_uses_only_one_explicit_retry_across_complete_command(
+    garmin_constructor: Mock,
+) -> None:
+    first_failure = GarminConnectConnectionError("private first failure")
+    second_failure = GarminConnectConnectionError("private second failure")
+    garmin = garmin_constructor.return_value
+    garmin.get_daily_steps.side_effect = [first_failure, []]
+    garmin.get_body_battery.side_effect = second_failure
+    sleeper = Mock()
+
+    with GarminWellnessGateway(sleeper=sleeper).connect(_token().encode()) as connection:
+        assert connection.daily_steps(date(2026, 8, 1), date(2026, 8, 26)) == []
+        with pytest.raises(WellnessNetworkError) as caught:
+            connection.body_battery(date(2026, 8, 26), date(2026, 8, 26))
+        assert connection.request_attempts == 4
+
+    sleeper.assert_called_once_with(1.0)
+    assert "private" not in str(caught.value)
+    assert garmin.get_daily_steps.call_count == 2
+    assert garmin.get_body_battery.call_count == 1
+
+
+@pytest.mark.parametrize(
+    ("external_error", "domain_error"),
+    [
+        pytest.param(
+            GarminConnectAuthenticationError("private"),
+            WellnessAuthenticationError,
+            id="authentication",
+        ),
+        pytest.param(
+            GarminConnectTooManyRequestsError("private"),
+            WellnessRateLimitedError,
+            id="rate-limit",
+        ),
+    ],
+)
+def test_wellness_authentication_and_rate_limit_fail_without_retry(
+    garmin_constructor: Mock,
+    external_error: Exception,
+    domain_error: type[Exception],
+) -> None:
+    garmin_constructor.return_value.get_sleep_data.side_effect = external_error
+    sleeper = Mock()
+
+    with (
+        GarminWellnessGateway(sleeper=sleeper).connect(_token().encode()) as connection,
+        pytest.raises(domain_error) as caught,
+    ):
+        connection.sleep_detail(date(2026, 8, 26))
+
+    sleeper.assert_not_called()
+    assert "private" not in str(caught.value)
+
+
+def test_wellness_nested_dependency_failures_keep_safe_classification(
+    garmin_constructor: Mock,
+) -> None:
+    nested = GarminConnectTooManyRequestsError("private nested detail")
+    wrapped = GarminConnectAuthenticationError("private wrapper")
+    wrapped.__cause__ = nested
+    garmin_constructor.return_value.get_sleep_data.side_effect = wrapped
+
+    with (
+        GarminWellnessGateway(sleeper=Mock()).connect(_token().encode()) as connection,
+        pytest.raises(WellnessRateLimitedError) as caught,
+    ):
+        connection.sleep_detail(date(2026, 8, 26))
+
+    assert "private" not in str(caught.value)
+
+
+def test_wellness_source_404_is_unsupported_and_other_4xx_is_remote_failure(
+    garmin_constructor: Mock,
+) -> None:
+    unsupported = GarminConnectConnectionError("private unsupported body")
+    unsupported.response = SimpleNamespace(status_code=404)
+    remote = GarminConnectConnectionError("private remote body")
+    remote.response = SimpleNamespace(status_code=422)
+    garmin = garmin_constructor.return_value
+    garmin.get_hrv_data.side_effect = unsupported
+    garmin.get_sleep_data.side_effect = remote
+
+    with GarminWellnessGateway(sleeper=Mock()).connect(_token().encode()) as connection:
+        with pytest.raises(UnsupportedWellnessSourceError) as caught_unsupported:
+            connection.hrv_detail(date(2026, 8, 26))
+        with pytest.raises(WellnessRemoteServiceError) as caught_remote:
+            connection.sleep_detail(date(2026, 8, 26))
+
+    assert caught_unsupported.value.source is WellnessSource.HRV
+    assert "private" not in str(caught_unsupported.value)
+    assert "private" not in str(caught_remote.value)
+
+
+def test_wellness_dependency_shape_failure_maps_to_redacted_source_data_error(
+    garmin_constructor: Mock,
+) -> None:
+    garmin_constructor.return_value.get_sleep_daily.side_effect = ValueError(
+        "private malformed response"
+    )
+
+    with (
+        GarminWellnessGateway(sleeper=Mock()).connect(_token().encode()) as connection,
+        pytest.raises(InvalidWellnessDataError) as caught,
+    ):
+        connection.sleep_range(date(2026, 8, 1), date(2026, 8, 26))
+
+    assert caught.value.source is WellnessSource.SLEEP
+    assert "private" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "token_json",
+    [
+        pytest.param(b"\xff", id="non-utf8"),
+        pytest.param(b"{}", id="invalid-contract"),
+    ],
+)
+def test_wellness_rejects_invalid_tokens_before_constructing_client(
+    garmin_constructor: Mock,
+    token_json: bytes,
+) -> None:
+    with (
+        pytest.raises(WellnessInvalidDataError),
+        GarminWellnessGateway(sleeper=Mock()).connect(token_json),
+    ):
+        pytest.fail("invalid tokens must not yield a connection")
+
+    garmin_constructor.assert_not_called()
+
+
+def test_wellness_rejects_invalid_refreshed_tokens(garmin_constructor: Mock) -> None:
+    garmin_constructor.return_value.client.dumps.side_effect = [_token(), "{}"]
+
+    with (
+        GarminWellnessGateway(sleeper=Mock()).connect(_token().encode()) as connection,
+        pytest.raises(WellnessInvalidDataError),
+    ):
+        connection.refreshed_session()
+
+
+def test_wellness_verification_rejects_unsafe_display_name_without_data_calls(
+    garmin_constructor: Mock,
+) -> None:
+    garmin = garmin_constructor.return_value
+    garmin.connectapi.return_value = {"profileId": 10101, "displayName": "unsafe/name\n"}
+
+    with (
+        pytest.raises(WellnessSyncError),
+        GarminWellnessGateway(sleeper=Mock()).connect(_token().encode()),
+    ):
+        pytest.fail("invalid verification must not yield a connection")
+
+    garmin.get_user_summary.assert_not_called()
+
+
+def test_complete_wellness_deadline_maps_to_network_failure(
+    garmin_constructor: Mock,
+) -> None:
+    with (
+        patch(
+            "omarchy_garmin.garmin_gateway._request_deadline",
+            side_effect=_RequestDeadlineExpired("expired"),
+        ),
+        pytest.raises(WellnessNetworkError),
+        GarminWellnessGateway(sleeper=Mock()).connect(_token().encode()),
+    ):
+        pytest.fail("expired deadline must not yield a connection")
+
+    garmin_constructor.return_value.connectapi.assert_not_called()
+
+
+def test_wellness_attempt_budget_fails_closed_before_twenty_first_http_attempt(
+    garmin_constructor: Mock,
+) -> None:
+    garmin = garmin_constructor.return_value
+    garmin.get_daily_steps.return_value = []
+
+    with GarminWellnessGateway(sleeper=Mock()).connect(_token().encode()) as connection:
+        for _ in range(19):
+            connection.daily_steps(date(2026, 8, 26), date(2026, 8, 26))
+        with pytest.raises(WellnessSyncConfigurationError):
+            connection.daily_steps(date(2026, 8, 26), date(2026, 8, 26))
+
+    assert garmin.get_daily_steps.call_count == 19
 
 
 def test_request_deadline_restores_existing_signal_state() -> None:
