@@ -44,6 +44,8 @@ def test_sleep_trends_have_clear_score_duration_and_stage_choices() -> None:
     assert "modelData.sleep.remSeconds" in chart
     assert "modelData.sleep.awakeSeconds" in chart
     assert 'return "Deep, Light, REM, and Awake shown as one daily composition"' in chart
+    assert 'return "Contributing days · Deep " + counts.deep + " · Light " + counts.light' in chart
+    assert '" · REM " + counts.rem + " · Awake " + counts.awake' in chart
 
 
 def test_wellness_chart_treatments_match_each_metric_semantics() -> None:

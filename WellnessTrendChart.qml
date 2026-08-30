@@ -28,8 +28,10 @@ Column {
       ? "bars" : "line"
   readonly property real minimumValue: chartMinimum()
   readonly property real maximumValue: chartMaximum()
-  readonly property int contributorCount: Model.wellnessTrendContributorCount(
+  readonly property var contributorCount: Model.wellnessTrendContributorCount(
     wellness, periodDays, familyKey, sleepMetric)
+  readonly property var stageContributorCounts: Model.wellnessTrendStageContributorCounts(
+    wellness, periodDays)
   readonly property bool currentDayPartial: Model.wellnessTrendIsPartial(
     wellness, familyKey) && points.length > 0 && groupForPoint(points[points.length - 1]) !== null
   readonly property bool hasValues: valuePointCount() > 0
@@ -247,9 +249,12 @@ Column {
   }
 
   function contributorText() {
-    var subject = familyKey === "bodyBattery" ? " with a latest level"
-      : familyKey === "sleep" && sleepMetric === "stages" ? " with a Deep value"
-      : " with a value"
+    if (familyKey === "sleep" && sleepMetric === "stages") {
+      var counts = stageContributorCounts || { deep: 0, light: 0, rem: 0, awake: 0 }
+      return "Contributing days · Deep " + counts.deep + " · Light " + counts.light
+        + " · REM " + counts.rem + " · Awake " + counts.awake
+    }
+    var subject = familyKey === "bodyBattery" ? " with a latest level" : " with a value"
     return contributorCount + (contributorCount === 1 ? " day" : " days") + subject
   }
 

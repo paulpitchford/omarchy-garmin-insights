@@ -276,7 +276,27 @@ TestCase {
     compare(Model.wellnessPeriodByDays(wellness, 30).startDate, "2026-08-01")
     compare(Model.wellnessTrendContributorCount(
       wellness, 7, "trainingReadiness", "score"), 7)
-    compare(Model.wellnessTrendContributorCount(wellness, 30, "sleep", "stages"), 30)
+    var stageCounts = Model.wellnessTrendStageContributorCounts(wellness, 30)
+    compare(stageCounts.deep, 30)
+    compare(stageCounts.light, 30)
+    compare(stageCounts.rem, 30)
+    compare(stageCounts.awake, 30)
+  }
+
+  function test_sleep_stage_contributors_preserve_each_scalar_count() {
+    var raw = Model.syntheticWellness(Date.parse("2026-08-30T12:00:00Z"), "sparse")
+    raw.days[29].sleep.lightSeconds = 3600
+    raw.periods[0].contributingDays.sleep.lightSeconds++
+    raw.periods[1].contributingDays.sleep.lightSeconds++
+    var wellness = Model.parseWellness(JSON.stringify(raw)).wellness
+
+    var counts = Model.wellnessTrendStageContributorCounts(wellness, 7)
+
+    compare(counts.deep, 2)
+    compare(counts.light, 3)
+    compare(counts.rem, 2)
+    compare(counts.awake, 2)
+    compare(Model.wellnessTrendContributorCount(wellness, 7, "sleep", "stages"), null)
   }
 
   function test_sparse_wellness_trends_keep_gaps_distinct_from_valid_zero() {

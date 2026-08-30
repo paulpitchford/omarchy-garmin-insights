@@ -631,8 +631,20 @@ function wellnessTrendContributorCount(wellness, periodDays, familyKey, sleepMet
     return period.contributingDays.restingHeartRate.beatsPerMinute
   if (familyKey !== "sleep") return 0
   if (sleepMetric === "duration") return period.contributingDays.sleep.totalSeconds
-  if (sleepMetric === "stages") return period.contributingDays.sleep.deepSeconds
+  if (sleepMetric === "stages") return null
   return period.contributingDays.sleep.score
+}
+
+function wellnessTrendStageContributorCounts(wellness, periodDays) {
+  var period = wellnessPeriodByDays(wellness, periodDays)
+  if (!period || !period.contributingDays) return null
+  var sleep = period.contributingDays.sleep
+  return {
+    deep: sleep.deepSeconds,
+    light: sleep.lightSeconds,
+    rem: sleep.remSeconds,
+    awake: sleep.awakeSeconds
+  }
 }
 
 function wellnessTrendIsPartial(wellness, familyKey) {
