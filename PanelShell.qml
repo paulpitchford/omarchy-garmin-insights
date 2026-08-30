@@ -256,7 +256,18 @@ Panel {
     scrollPositions = ({})
     pageScroll.contentY = 0
     if (service && service.summaryStale) service.refresh()
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    Qt.callLater(function() {
+      keyCatcher.forceActiveFocus()
+      if (service) service.loadLatestActivity()
+    })
+  }
+
+  Connections {
+    target: root.service
+    function onSummaryChanged() {
+      if (root.opened && root.service)
+        Qt.callLater(function() { root.service.loadLatestActivity() })
+    }
   }
 
   PanelSession { id: session }
@@ -420,6 +431,7 @@ Panel {
             panelCursorActive: root.cursorActive
             hasCursor: root.focusArea === "content"
             foreground: root.foreground
+            urgent: root.urgent
             dim: root.dim
             fontFamily: root.fontFamily
             onWellnessRequested: root.switchMode(1)
@@ -432,9 +444,12 @@ Panel {
             width: parent.width
             wellness: root.service ? root.service.wellness : null
             viewIndex: session.wellnessViewIndex
+            wideLayout: root.wideLayout
             panelCursorActive: root.cursorActive
             hasCursor: root.focusArea === "content"
+            nowMs: root.service ? root.service.nowMs : Date.now()
             foreground: root.foreground
+            urgent: root.urgent
             dim: root.dim
             fontFamily: root.fontFamily
             onViewRequested: function(index) { root.setWellnessView(index) }

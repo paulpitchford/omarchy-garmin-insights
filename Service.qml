@@ -34,6 +34,8 @@ Item {
   property bool wellnessCacheReloadPending: false
   property var activityPage: null
   property var activityDetail: null
+  property var latestActivity: null
+  property string activityListPurpose: ""
   property string activityViewError: ""
   property bool activityDetailMissing: false
   property var activityListExpected: null
@@ -85,7 +87,11 @@ Item {
   readonly property var candidateActivityTrends: demoMode
     ? Model.syntheticActivityTrends(nowMs) : cachedActivityTrends
   readonly property var activityTrends: Model.trendsForSummary(candidateActivityTrends, summary)
-  readonly property var wellness: cachedWellness
+  readonly property var wellness: {
+    if (!demoMode) return cachedWellness
+    var parsed = Model.parseWellness(JSON.stringify(Model.syntheticWellness(nowMs)))
+    return parsed.ok ? parsed.wellness : null
+  }
   readonly property bool wellnessSummaryDateConsistent: wellness === null || summary === null
     || Model.wellnessSummaryDateMatches(wellness, summary)
   readonly property bool hasSummary: summary !== null
@@ -137,6 +143,7 @@ Item {
     if (!nextUpdateChecks && updateSettingChanged) cancelUpdateCheck()
     else if (nextUpdateChecks && updateSettingChanged && !updateInitialCheckStarted)
       updateStartupDelay.restart()
+    if (demoChanged) latestActivity = null
     if (demoChanged && demoMode) {
       authStatusProcess.running = false
       refreshProcess.running = false
@@ -512,6 +519,32 @@ Item {
     return false
   }
 
+  function loadLatestActivity() {
+    var period = Model.periodByKey(summary, "90Days")
+    latestActivity = null
+    if (!period || activityViewRunning || authStatusProcess.running
+        || refreshProcess.running) return false
+    if (demoMode) {
+      var synthetic = Model.syntheticActivityPage("90Days", period.endDate, null, 0)
+      latestActivity = synthetic && synthetic.activities.length > 0
+        ? synthetic.activities[0] : null
+      return true
+    }
+    if (!backendReady || uvPath === "" || sourceDir === "") return false
+    activityListPurpose = "overview"
+    activityListExpected = {
+      periodKey: "90Days", asOfDate: period.endDate, typeKey: null, offset: 0
+    }
+    activityListTimedOut = false
+    activityListProcess.command = backendCommand([
+      "activities", "list", "--json", "--period", "90Days",
+      "--as-of", period.endDate, "--offset", "0"
+    ])
+    activityListProcess.running = true
+    activityListDeadline.restart()
+    return true
+  }
+
   function loadActivityPage(periodKey, asOfDate, typeKey, offset) {
     var normalizedType = Model.normalizeActivityTypeFilter(typeKey)
     var normalizedOffset = Math.floor(Number(offset))
@@ -535,6 +568,7 @@ Item {
       activityViewError = "backend_unavailable"
       return
     }
+    activityListPurpose = "activities"
     activityListExpected = {
       periodKey: String(periodKey),
       asOfDate: String(asOfDate),
@@ -712,14 +746,26 @@ Item {
   }
 
   function handleActivityList(exitCode, raw) {
+    var purpose = activityListPurpose
+    activityListPurpose = ""
     var result = Model.parseActivityPageEnvelope(raw, activityListExpected)
     if (activityListTimedOut) {
-      activityViewError = "timeout"
+      if (purpose === "activities") activityViewError = "timeout"
+      else if (purpose === "overview") latestActivity = null
       return
     }
     if (exitCode !== 0 || !result.ok) {
-      activityViewError = result.envelope && result.envelope.error
-        ? String(result.envelope.error.code || "local_storage_error") : "invalid_response"
+      if (purpose === "activities") {
+        activityViewError = result.envelope && result.envelope.error
+          ? String(result.envelope.error.code || "local_storage_error") : "invalid_response"
+      } else if (purpose === "overview") latestActivity = null
+      return
+    }
+    if (purpose === "overview") {
+      var currentPeriod = Model.periodByKey(summary, "90Days")
+      latestActivity = currentPeriod && result.page.endDate === currentPeriod.endDate
+          && result.page.activities.length > 0
+        ? result.page.activities[0] : null
       return
     }
     activityPage = result.page

@@ -530,6 +530,82 @@ function wellnessSourceStale(source, nowMs, maximumAgeMs) {
   return Math.max(0, nowMs - source.refreshedMs) > maximumAgeMs
 }
 
+function wellnessCategoryDefinition(key) {
+  var definitions = {
+    trainingReadiness: {
+      label: "Training Readiness", group: "trainingReadiness",
+      sources: ["training_readiness"]
+    },
+    bodyBattery: {
+      label: "Body Battery", group: "bodyBattery", sources: ["body_battery"]
+    },
+    sleep: { label: "Sleep", group: "sleep", sources: ["sleep"] },
+    steps: {
+      label: "Steps", group: "steps", sources: ["user_summary", "steps"]
+    },
+    hrv: { label: "HRV", group: "hrv", sources: ["hrv"] },
+    restingHeartRate: {
+      label: "Resting heart rate", group: "restingHeartRate",
+      sources: ["user_summary", "resting_heart_rate"]
+    }
+  }
+  return definitions[key] || null
+}
+
+function latestWellnessDay(wellness, categoryKey) {
+  var definition = wellnessCategoryDefinition(categoryKey)
+  if (!wellness || !definition || !Array.isArray(wellness.days)) return null
+  for (var index = wellness.days.length - 1; index >= 0; index--)
+    if (wellness.days[index][definition.group] !== null) return wellness.days[index]
+  return null
+}
+
+function wellnessSourceForCategory(wellness, categoryKey, valueDate) {
+  var definition = wellnessCategoryDefinition(categoryKey)
+  if (!wellness || !definition) return null
+  var best = null
+  for (var index = 0; index < definition.sources.length; index++) {
+    var candidate = wellnessSourceByKey(wellness, definition.sources[index])
+    if (!candidate || (valueDate && candidate.latestValueDate !== valueDate)) continue
+    if (!best || candidate.refreshedMs > best.refreshedMs
+        || (candidate.refreshedMs === best.refreshedMs
+          && best.failure !== null && candidate.failure === null)) best = candidate
+  }
+  if (best || !valueDate) return best
+  return wellnessSourceForCategory(wellness, categoryKey, null)
+}
+
+function wellnessFailureText(failure) {
+  if (failure === "authentication") return "Garmin sign-in is required"
+  if (failure === "rate_limit") return "Garmin rate limit reached"
+  if (failure === "offline_transport") return "Garmin was unreachable"
+  if (failure === "remote_service") return "Garmin service failed"
+  if (failure === "invalid_data") return "Garmin returned invalid data"
+  if (failure === "local_storage") return "Local wellness storage failed"
+  if (failure === "unsupported") return "Not supported by this Garmin account or device"
+  return ""
+}
+
+function wellnessUnavailableReason(wellness, categoryKey) {
+  var definition = wellnessCategoryDefinition(categoryKey)
+  if (!definition) return "No retained value is available"
+  if (!wellness) return "No local wellness summary is available"
+  var failures = []
+  for (var index = 0; index < definition.sources.length; index++) {
+    var source = wellnessSourceByKey(wellness, definition.sources[index])
+    if (source && source.failure !== null) failures.push(source.failure)
+  }
+  if (failures.length === definition.sources.length) {
+    if (failures.indexOf("unsupported") !== -1
+        && failures.every(function(failure) { return failure === "unsupported" }))
+      return wellnessFailureText("unsupported")
+    return wellnessFailureText(failures[0]) + "; no retained value"
+  }
+  if (wellness.collectionEnabled === false)
+    return "Collection is off and no retained value is available"
+  return "No value is recorded in the retained 30 days"
+}
+
 function wellnessCacheReadError(hasWellness, currentError, resultError) {
   if (resultError === "cache_missing")
     return hasWellness ? String(currentError || "") : "missing"
@@ -985,6 +1061,83 @@ function syntheticSummary(nowMs) {
       syntheticSummaryPeriod(records, "30Days", dateDaysAgo(generated, 29), today),
       syntheticSummaryPeriod(records, "90Days", dateDaysAgo(generated, 89), today)
     ]
+  }
+}
+
+function syntheticWellness(nowMs, requestedVariant) {
+  var generated = new Date(nowMs || Date.now())
+  generated.setUTCMilliseconds(0)
+  var generatedAt = generated.toISOString().replace(".000Z", "Z")
+  var today = dateDaysAgo(generated, 0)
+  var variant = ["complete", "sparse", "unsupported", "stale", "partial"].indexOf(
+    requestedVariant) === -1 ? "complete" : requestedVariant
+  var days = []
+  for (var offset = 29; offset >= 0; offset--) {
+    days.push({
+      date: dateDaysAgo(generated, offset), steps: null, bodyBattery: null,
+      sleep: null, trainingReadiness: null, hrv: null, restingHeartRate: null
+    })
+  }
+  var valueIndex = variant === "stale" || variant === "partial" ? 28 : 29
+  var valueDay = days[valueIndex]
+  if (variant === "complete" || variant === "stale" || variant === "partial") {
+    valueDay.sleep = {
+      score: 84, totalSeconds: 27000, deepSeconds: 4500, lightSeconds: 15000,
+      remSeconds: 6000, awakeSeconds: 1500
+    }
+    valueDay.trainingReadiness = { score: 71, level: "Synthetic high" }
+    valueDay.hrv = {
+      weeklyAverageMs: 48.5, lastNightAverageMs: 52, status: "Synthetic balanced",
+      balancedLowMs: 40, balancedUpperMs: 60
+    }
+    valueDay.restingHeartRate = { beatsPerMinute: 54 }
+  }
+  if (variant !== "unsupported") {
+    days[29].steps = { value: variant === "sparse" ? 0 : 6420, goal: 8000 }
+    days[29].bodyBattery = variant === "sparse" ? null : {
+      charged: 42, drained: 31, lowest: 28, highest: 76, latest: 64
+    }
+  }
+  if (variant === "sparse") days[29].sleep = {
+    score: 84, totalSeconds: null, deepSeconds: null, lightSeconds: null,
+    remSeconds: null, awakeSeconds: null
+  }
+
+  var failures = {}
+  if (variant === "unsupported") {
+    for (var unsupportedIndex = 0; unsupportedIndex < WELLNESS_SOURCE_KEYS.length;
+        unsupportedIndex++) failures[WELLNESS_SOURCE_KEYS[unsupportedIndex]] = "unsupported"
+  } else if (variant === "stale") failures.sleep = "remote_service"
+
+  var sources = WELLNESS_SOURCE_KEYS.map(function(key, index) {
+    var refreshed = new Date(generated.getTime() - (index + 1) * 60000)
+    if (variant === "stale") refreshed = new Date(generated.getTime() - 36 * 3600000)
+    if (variant === "unsupported") refreshed = null
+    return {
+      source: key,
+      refreshedAt: refreshed ? refreshed.toISOString().replace(".000Z", "Z") : null,
+      latestValueDate: latestWellnessValueDate(key, days),
+      failure: failures[key] || null
+    }
+  })
+  return {
+    schemaVersion: WELLNESS_SCHEMA_VERSION,
+    generatedAt: generatedAt,
+    asOfLocalDate: today,
+    collectionEnabled: true,
+    partialCurrentDaySources: ["steps", "bodyBattery"],
+    sources: sources,
+    periods: [
+      {
+        key: "7Days", startDate: addCalendarDays(today, -6), endDate: today,
+        contributingDays: wellnessCountsForDays(days, 23)
+      },
+      {
+        key: "30Days", startDate: addCalendarDays(today, -29), endDate: today,
+        contributingDays: wellnessCountsForDays(days, 0)
+      }
+    ],
+    days: days
   }
 }
 
