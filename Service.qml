@@ -521,6 +521,7 @@ Item {
 
   function loadLatestActivity() {
     var period = Model.periodByKey(summary, "90Days")
+    latestActivity = null
     if (!period || activityViewRunning || authStatusProcess.running
         || refreshProcess.running) return false
     if (demoMode) {
@@ -750,17 +751,21 @@ Item {
     var result = Model.parseActivityPageEnvelope(raw, activityListExpected)
     if (activityListTimedOut) {
       if (purpose === "activities") activityViewError = "timeout"
+      else if (purpose === "overview") latestActivity = null
       return
     }
     if (exitCode !== 0 || !result.ok) {
       if (purpose === "activities") {
         activityViewError = result.envelope && result.envelope.error
           ? String(result.envelope.error.code || "local_storage_error") : "invalid_response"
-      }
+      } else if (purpose === "overview") latestActivity = null
       return
     }
     if (purpose === "overview") {
-      latestActivity = result.page.activities.length > 0 ? result.page.activities[0] : null
+      var currentPeriod = Model.periodByKey(summary, "90Days")
+      latestActivity = currentPeriod && result.page.endDate === currentPeriod.endDate
+          && result.page.activities.length > 0
+        ? result.page.activities[0] : null
       return
     }
     activityPage = result.page

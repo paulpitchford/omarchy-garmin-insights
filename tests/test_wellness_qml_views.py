@@ -90,5 +90,13 @@ def test_latest_activity_is_loaded_through_the_existing_bounded_local_contract()
     assert "function loadLatestActivity()" in service
     assert 'periodKey: "90Days", asOfDate: period.endDate, typeKey: null, offset: 0' in service
     assert '"activities", "list", "--json", "--period", "90Days"' in service
-    assert "latestActivity = result.page.activities.length > 0" in service
+    assert "result.page.endDate === currentPeriod.endDate" in service
     assert "service.loadLatestActivity()" in shell
+
+
+def test_latest_activity_is_hidden_during_load_and_after_background_failure() -> None:
+    service = (ROOT / "Service.qml").read_text(encoding="utf-8")
+    loader = service[service.index("function loadLatestActivity()") :]
+
+    assert loader.index("latestActivity = null") < loader.index('activityListPurpose = "overview"')
+    assert 'else if (purpose === "overview") latestActivity = null' in service
