@@ -1,58 +1,122 @@
 # Garmin Insights for Omarchy
 
-Garmin Insights is an Omarchy Quattro bar plugin for recent Garmin Connect activities and bounded daily wellness data. It covers activity periods from today through the last 90 calendar days and keeps 30 days of approved wellness values.
+Garmin Insights puts recent Garmin Connect activities and daily wellness data in the Omarchy Quattro bar. The panel combines a compact daily overview with activity trends, local activity drill-down, wellness history, freshness, and account controls.
 
-![Garmin Insights Overview showing fabricated activity and wellness data](preview.png)
+![Garmin Insights Overview with fabricated activity and wellness data](preview.png)
 
-Current release: [`v0.1.1`](https://github.com/paulpitchford/omarchy-garmin-insights/releases/tag/v0.1.1)
+> [!NOTE]
+> The default branch contains the accepted 0.2.0 candidate. The latest tagged release is still [`v0.1.1`](https://github.com/paulpitchford/omarchy-garmin-insights/releases/tag/v0.1.1) until the release metadata is prepared and published.
 
-The plugin ID is `io.github.paulpitchford.garmin-insights`.
+Plugin ID: `io.github.paulpitchford.garmin-insights`
 
-## Screenshots
+Garmin Insights is an independent, unofficial project. It is not affiliated with Garmin or Omarchy.
 
-These screenshots use the plugin's built-in synthetic demo. They contain no data from a Garmin account.
+## Contents
 
-| Wellness Today | Wellness Trends |
+- [The panel](#the-panel)
+- [Features](#features)
+- [Install and connect](#install-and-connect)
+- [Controls](#controls)
+- [Refresh and retention](#refresh-and-retention)
+- [Update](#update)
+- [Stop collection, log out, purge, or remove](#stop-collection-log-out-purge-or-remove)
+- [Storage and privacy](#storage-and-privacy)
+- [Network access](#network-access)
+- [Backend commands](#backend-commands)
+- [Troubleshooting](#troubleshooting)
+- [Data contracts](#data-contracts)
+- [Development](#development)
+
+## The panel
+
+The panel opens on Overview and keeps Activities and Wellness separate. Each domain has its own freshness and failure state, so a failed wellness source does not hide a successful activity refresh.
+
+### Wellness Today and Trends
+
+Wellness Today shows Training Readiness, Body Battery, Sleep, Steps, HRV, and resting heart rate. Values keep Garmin's dates, goals, baselines, scores, and statuses. Missing values remain unavailable rather than becoming zero.
+
+Trends show one metric family at a time over 7 or 30 days. The chart changes with the metric: Body Battery uses daily ranges, Sleep can show score, duration, or stacked stages, Steps uses Garmin's goal, and HRV uses Garmin's balanced baseline.
+
+| Wellness Today | Sleep stages over seven days |
 |---|---|
-| ![Fabricated Wellness Today in Garmin Insights](screenshots/wellness-today.png) | ![Fabricated Training Readiness trend in Garmin Insights](screenshots/wellness-trends.png) |
+| ![Garmin Insights Wellness Today with fabricated values](screenshots/wellness-today.png) | ![Garmin Insights Wellness Trends showing fabricated sleep stages](screenshots/wellness-trends.png) |
 
-| Activity list | Activity detail |
+### Activity totals, trends, and drill-down
+
+Activities covers Today, 7 days, 30 days, and 90 days. It shows count, duration, distance, energy, the original Garmin activity types, and a selectable chart for time, distance, elevation gain, or energy. Unknown Garmin activity types remain visible instead of being dropped.
+
+The list and detail pages read the local database only. Opening an activity does not make another Garmin request. The optional Garmin Connect action builds `https://connect.garmin.com/app/activity/<activity-id>` from a validated decimal ID and opens it in the default browser. Garmin data cannot supply the URL, host, scheme, path, or command, and plugin tokens are not passed to the browser.
+
+![Garmin Insights Activities with fabricated totals and activity types](screenshots/activities.png)
+
+| Local activity list | Local activity detail |
 |---|---|
-| ![Fabricated activity list in Garmin Insights](screenshots/activity-list.png) | ![Fabricated strength activity details in Garmin Insights](screenshots/activity-detail.png) |
+| ![Garmin Insights local activity list with fabricated activities](screenshots/activity-list.png) | ![Garmin Insights local activity detail with fabricated metrics](screenshots/activity-detail.png) |
 
-## What it does
+### Settings, updates, and data controls
 
-- Opens on an Overview with current Body Battery, Sleep, and Steps signals alongside the weekly activity chart and latest activity.
-- Shows Training Readiness, Body Battery, Sleep, Steps, HRV, and resting heart rate in a separate Wellness view.
-- Charts one wellness metric family at a time over 7 or 30 days. Sleep has Score, Duration, and Stages views.
-- Shows activity count, duration, distance, and energy for the selected period.
-- Charts activity time, distance, elevation gain, or energy across 7 and 30 daily points or 13 trailing buckets for 90 days.
-- Adds proportional count fills behind the existing activity-type rows while keeping their exact values and drill-down actions.
-- Opens a bounded local activity list for a period or original Garmin activity type.
-- Shows the stored allowlisted details for one activity and can explicitly open it on Garmin Connect.
-- Breaks totals down by Garmin's original activity type, including types the plugin does not already know.
-- Supports metric, imperial, or locale-selected units.
-- Keeps a rolling 90-day activity window, 30 days of wellness scalars, and separate bounded display caches.
-- Refreshes activities every 30 minutes by default. Wellness uses independent 30-minute, four-hour, daily, weekly, and one-hour backfill limits according to source and request type.
-- Keeps each domain's last valid data while offline and makes bounded activity recovery attempts after resume or a connectivity failure.
-- Checks supported Git-managed installs for updates at most once per 24 hours and opens Omarchy's review flow on request.
-- Uses a visible terminal for Garmin login and supports MFA in the same login process.
-- Works on horizontal and vertical bars and shares one refresh service across monitors.
-- Includes a synthetic demo mode that does not contact Garmin.
+Settings contains ordinary preferences, independent Activity and Wellness status, the update check, help, and the Wellness collection switch. Logout and purge live on a separate Account and data page so they cannot be confused with stopping wellness requests. Collection changes, logout, and purge each require explicit confirmation.
 
-The plugin reads activity summaries and the approved daily wellness endpoints listed below. It does not upload, edit, schedule, or delete Garmin data, and it does not download FIT files or routes. It does not request Stress, intraday heart-rate samples, Body Battery events, health snapshots, device data, location data, hydration, weight, or blood-pressure data.
+| Settings | Account and data |
+|---|---|
+| ![Garmin Insights Settings using fabricated demo state](screenshots/settings.png) | ![Garmin Insights Account and data controls using fabricated demo state](screenshots/account-data.png) |
 
-Activity drill-down is local-only. It does not make another Garmin API request or download routes, maps, or FIT files. The external action uses the fixed `https://connect.garmin.com/app/activity/<activity-id>` pattern after validating the decimal identifier. Garmin data cannot provide a URL, host, scheme, path, or command. The browser uses its own Garmin session; plugin OAuth tokens are not passed to it.
+Every image in this repository comes from the built-in synthetic demo. No Garmin account data is used in screenshots, tests, or examples.
 
-## Scope not included
+## Features
 
-Stress, intensity minutes, floors, daily calories, wellness bar rotation, user-reordered cards, a 90-day heatmap, intraday Body Battery, sleep start and end times, correlations, coaching, alerts, thresholds, and medical interpretation are not included. Garmin China support remains an open decision.
+### Overview
+
+- Current Body Battery, Sleep, and Steps signals.
+- A larger weekly activity chart and activity count.
+- The latest locally retained activity.
+- Separate Activity and Wellness freshness.
+- One refresh control that runs both domains sequentially.
+
+### Wellness
+
+- Training Readiness score and Garmin level.
+- Body Battery charged, drained, daily low, high, and latest value.
+- Sleep score, total duration, and Deep, Light, REM, and Awake durations.
+- Steps against Garmin's supplied daily goal.
+- HRV last-night and weekly averages, Garmin status, and balanced baseline.
+- Resting heart rate.
+- Seven-day and 30-day trends with exact dated values through pointer and keyboard controls.
+- Source-specific missing, unsupported, stale, and failed states.
+- Thirty rolling local dates of approved daily scalars.
+
+### Activities
+
+- Today, 7-day, 30-day, and 90-day calendar periods.
+- Count, duration, distance, elevation gain, energy, heart rate, speed, power, sets, and repetitions where Garmin supplies them.
+- Time, distance, elevation, and energy charts.
+- Breakdown by Garmin's original activity type, with proportional count fills behind each row.
+- Local lists of at most 20 rows per page and a bounded detail view.
+- Metric, imperial, or locale-selected units.
+- Ninety rolling local dates of normalized activity data.
+
+### Desktop behavior
+
+- Horizontal and vertical bar layouts.
+- One shared service across widgets and monitors.
+- A responsive 600-style-unit panel that clamps to the anchor screen and falls back to one column when space is limited.
+- Keyboard and pointer navigation, preserved nested selections, per-page scrolling, and predictable Escape unwinding.
+- A visible terminal for backend setup, Garmin login, and update review.
+- A built-in synthetic demo that makes no Garmin request.
+
+## What the plugin does not do
+
+Garmin Insights is read-only with respect to Garmin. It does not upload, edit, schedule, or delete Garmin data. It does not download FIT files, routes, maps, or coordinates.
+
+It does not request Stress, intraday heart-rate samples, Body Battery events, health snapshots, device or location data, menstrual or pregnancy data, hydration, weight, or blood pressure.
+
+Stress charts, intensity minutes, floors, daily calories, wellness values in the bar, user-reordered cards, a 90-day heatmap, raw intraday Body Battery, sleep start and end times, correlations, coaching, alerts, thresholds, and medical interpretation are outside the current scope. Garmin China support remains undecided.
 
 ## Requirements
 
 - Omarchy with the Quattro shell plugin commands (`omarchy plugin` and `omarchy bar`).
-- `/usr/bin/python3`, supplied by Omarchy and used for the stdlib-only cache permission preflight and update-check state helper.
-- `/usr/bin/git`, supplied by Omarchy and used for local checkout validation and the fixed-repository update query.
+- `/usr/bin/python3`, supplied by Omarchy, for the standard-library-only cache preflight and update helper.
+- `/usr/bin/git`, supplied by Omarchy, for supported-checkout validation and the fixed public update query.
 - [`uv`](https://github.com/astral-sh/uv) at one of these paths:
   - `/usr/bin/uv`
   - `~/.local/bin/uv`
@@ -60,76 +124,86 @@ Stress, intensity minutes, floors, daily calories, wellness bar rotation, user-r
 - A Garmin Connect account and network access for login and refreshes.
 - An absolute `XDG_RUNTIME_DIR`, as provided by a normal Omarchy desktop session.
 
-`uv` installs the required Python version and the locked backend packages. If you use the mise shim, install or configure `uv` through mise before setup; invoking the shim remains subject to your mise configuration and may trigger mise's own version resolution or download process. The plugin does not need root access and does not install a system service.
+`uv` installs the required Python version and locked backend packages. A mise shim remains subject to the user's mise configuration and may trigger mise's own runtime resolution or download. Garmin Insights needs no root access and installs no system service.
 
-## Install
+## Install and connect
 
-Review the repository before installing because Omarchy plugins run unsandboxed with your user account's permissions. Then add and enable it:
+Review the repository before installing it. Omarchy plugins run unsandboxed with the current user's permissions.
 
 ```bash
 omarchy plugin add https://github.com/paulpitchford/omarchy-garmin-insights.git --enable
 ```
 
-The plugin checkout is stored at:
+Omarchy stores the checkout at:
 
 ```text
 ~/.config/omarchy/plugins/io.github.paulpitchford.garmin-insights
 ```
 
-Left-click the Garmin Insights bar item to open its panel, then select **Set up backend**. A visible terminal runs the locked dependency setup. The Python environment is stored outside the plugin checkout at:
+1. Left-click the Garmin Insights bar item.
+2. Select **Set up backend**. A visible terminal installs the locked environment.
+3. Select **Connect Garmin**.
+4. Enter the Garmin email in the terminal. Password and MFA input are hidden.
+5. Leave the terminal open until login and MFA finish in the same Python process.
+
+The password and MFA code are never written to files, command arguments, environment variables, QML properties, or logs. Only the token material written by `python-garminconnect` is retained.
+
+The Python environment lives outside the plugin checkout:
 
 ```text
 $XDG_CACHE_HOME/omarchy-garmin-insights/uv-environment
 ```
 
-When `XDG_CACHE_HOME` is unset, the path starts at `~/.cache`.
+When `XDG_CACHE_HOME` is unset, the path is `~/.cache/omarchy-garmin-insights/uv-environment`.
 
-After setup finishes, select **Connect Garmin**. Enter the Garmin email in the terminal. Password and MFA input are hidden. The password and MFA code stay in that login process and are not written to files, command arguments, environment variables, QML properties, or logs.
+A successful login starts Activity and Wellness refreshes sequentially. One domain can commit and update its display while the other fails.
 
-A successful login starts a sequential activity and wellness refresh. The first activity refresh of each local calendar day reconciles the complete rolling 90-day window; later activity refreshes reconcile a seven-day overlap. Wellness starts with a 30-day reconciliation, then follows the bounded cadence described under [Wellness contract](#wellness-contract). One domain can succeed and update while the other fails.
+### Try it without Garmin
 
-### Try the interface without Garmin
-
-Demo mode uses only fabricated data:
+Demo mode uses only fabricated values and makes no Garmin request:
 
 ```bash
 omarchy bar set io.github.paulpitchford.garmin-insights demoMode true --json
 ```
 
-Turn it off before connecting an account:
+Turn demo mode off before connecting an account:
 
 ```bash
 omarchy bar set io.github.paulpitchford.garmin-insights demoMode false --json
 ```
 
-## Use
+## Controls
 
-- Left-click the bar item to open or close the panel.
-- Middle-click to refresh.
-- Right-click to run the action needed for the current state: setup, login, retry, or refresh.
-- In the panel, use Left and Right across Overview, Wellness, Activities, and Settings. Arrow keys move through each page and Enter activates the selected control.
-- Wellness Today and Trends keep their selection while the panel is open. Trends expose exact dated values through pointer and keyboard paths.
-- In a list, use Up and Down to select an activity, Right or Enter to open details, and Left or Escape to go back.
-- In a detail view, choose **Open in Garmin Connect** explicitly; Left or Escape returns to the list.
-- Press `R` to refresh both domains sequentially, Tab to switch panels, and Escape to cancel a confirmation, unwind a nested page, or close the panel.
+### Bar
 
-Mouse users can open Wellness, browse activities, select an original activity type, open a list row, and use the explicit Garmin Connect action. Activity and wellness charts provide exact values through their documented pointer or keyboard paths. When content is taller than the fitted panel, a vertical scrollbar appears while the header refresh control and footer help remain visible. Lists contain at most 20 rows per page. The horizontal bar still shows the selected activity period's count. A vertical bar uses an icon-only form.
+- Left-click opens or closes the panel.
+- Middle-click refreshes.
+- Right-click runs the action for the current state: setup, connect, reconnect, retry, or refresh.
+- A horizontal bar shows the selected activity period's count. A vertical bar uses an icon-only form.
 
-Settings can stop or enable future wellness collection after explicit confirmation. Stopping collection retains existing wellness rows and caches. Logout removes tokens but keeps local activity and wellness data. Purge removes authentication, the account database, and activity and wellness display caches. These are separate confirmed actions under **Account and data**.
+### Panel
 
-### Settings
+- Left and Right move across Overview, Wellness, Activities, and Settings.
+- Arrow keys move through the current page. Enter activates the selected control.
+- `R` refreshes Activity and Wellness sequentially.
+- Tab switches shell panels.
+- Escape cancels a confirmation, returns from a nested page, or closes the panel.
+- Activity lists use Up and Down to select, Right or Enter to open, and Left or Escape to return.
+- Charts expose exact values through pointer and keyboard paths.
 
-Settings can be changed through the Omarchy bar settings interface or with `omarchy bar set`:
+The header and footer remain visible when a page scrolls. Wellness and Activities keep nested selection for the current open session, and each view restores its own scroll position.
 
-| Setting | Values | Default |
-|---|---|---|
-| `period` | `today`, `7Days`, `30Days`, `90Days` | `7Days` |
-| `units` | `auto`, `metric`, `imperial` | `auto` |
-| `refreshMinutes` | 5 to 360 | 30 |
-| `checkForUpdates` | `true`, `false` | `true` |
-| `demoMode` | `true`, `false` | `false` |
+## Settings
 
-Examples:
+Settings can be changed in the panel, through Omarchy's bar settings, or with `omarchy bar set`.
+
+| Setting | Values | Default | Purpose |
+|---|---|---:|---|
+| `period` | `today`, `7Days`, `30Days`, `90Days` | `7Days` | Count shown in the bar and initial Activities period |
+| `units` | `auto`, `metric`, `imperial` | `auto` | Presentation conversion only |
+| `refreshMinutes` | 5 to 360 | 30 | Activity refresh interval |
+| `checkForUpdates` | `true`, `false` | `true` | Fixed public Git update check |
+| `demoMode` | `true`, `false` | `false` | Fabricated offline interface |
 
 ```bash
 omarchy bar set io.github.paulpitchford.garmin-insights period 30Days
@@ -138,31 +212,65 @@ omarchy bar set io.github.paulpitchford.garmin-insights refreshMinutes 60 --json
 omarchy bar set io.github.paulpitchford.garmin-insights checkForUpdates false --json
 ```
 
+Wellness collection is controlled separately under Settings. Stopping it prevents every future wellness request while retaining stored rows and display data. Re-enabling it starts a bounded refresh without bypassing historical reconciliation or backfill cooldowns.
+
+## Refresh and retention
+
+Activity and Wellness share one no-overlap service and one owner-only runtime lock. The service runs the two backend commands sequentially under a 249-second combined deadline. Each backend command has its own 120-second Garmin deadline.
+
+### Activity cadence
+
+- The user-selected activity interval is 30 minutes by default and can be set from 5 to 360 minutes.
+- The first refresh on each local calendar date reconciles the full rolling 90-day window.
+- Later refreshes reconcile a seven-day overlap.
+- A refresh uses at most one retry for a transient transport or server failure.
+- Authentication failures and HTTP 429 do not retry.
+
+### Wellness cadence
+
+- Current Steps and Body Battery can refresh every 30 minutes.
+- Current Sleep and Training Readiness can refresh every four hours.
+- The first Wellness refresh reconciles the retained 30-day range.
+- Historical range reconciliation runs at most once per local date.
+- Another complete 30-day range reconciliation runs no more than once per seven local dates.
+- Detailed Sleep backfill targets the current seven dates.
+- Training Readiness backfill targets all 30 retained dates.
+- Backfill has a one-hour cooldown and selects at most two dates per source and four single-date calls per command.
+- A manual refresh bypasses current-value cadence only. It does not bypass historical or backfill cooldowns.
+
+Each Wellness source commits independently and updates only its own freshness after a successful transaction. Invalid, unsupported, interrupted, or failed sources retain their previous valid rows. A null value never overwrites a retained non-null scalar. Disabling collection is idempotent, changes local state only, and makes no Garmin request.
+
+### Offline and resume behavior
+
+The last valid Activity and Wellness state remains visible during a network failure. After a suspend-length timer gap, the service waits 15 seconds for networking to settle. An offline or remote-service result may schedule no more than two Activity recovery commands, after 30 seconds and two minutes. Success, authentication failure, rate limiting, and local errors cancel that sequence. Garmin Insights does not run a generic internet probe or connectivity daemon.
+
 ## Update
 
-The plugin checks for updates but never changes its checkout. Update checks are enabled by default. A supported install must be a real Git checkout at the documented plugin path, on `main`, with the exact `https://github.com/paulpitchford/omarchy-garmin-insights.git` origin. Copied or symlinked plugins, worktrees, detached heads, other branches, changed origins, Git configuration includes, and URL rewrites do not use this feature.
+The plugin checks for updates but never changes its own checkout. Update checks work only for a real Git checkout at the documented plugin path, on `main`, with the exact origin:
 
-The shared service waits 30 seconds after startup, then uses `/usr/bin/git ls-remote` to compare the installed commit with the fixed `refs/heads/main` commit. It records the attempt in the private cache so automatic checks run no more than once per 24 hours, including after a shell restart. **Check again** is an explicit exception to that cadence. Empty, malformed, oversized, failed, offline, or timed-out results are ignored and do not change Garmin status or cached Garmin data.
+```text
+https://github.com/paulpitchford/omarchy-garmin-insights.git
+```
 
-When the commits differ, Settings shows **Update available**. Select **Review update** to open a visible terminal running the following command without `--yes`:
+Copied or symlinked plugins, worktrees, detached heads, other branches, changed origins, Git configuration includes, and URL rewrites do not use this feature.
+
+Thirty seconds after startup, the service can run a bounded `/usr/bin/git ls-remote` query for the fixed `refs/heads/main` ref. Interactive Git credentials and configuration rewrites are disabled for the query. Automatic checks run no more than once per 24 hours. **Check now** is an explicit manual exception. Failures, timeouts, and malformed output do not change Garmin status or cached Garmin data.
+
+When Settings shows **Update available**, choose **Review update**. A visible terminal runs this command without `--yes`:
 
 ```bash
 omarchy plugin update io.github.paulpitchford.garmin-insights
 ```
 
-The command fetches the repository's default branch. If there are changes, Omarchy shows the diff and asks for confirmation, performs a fast-forward-only update, validates the resulting plugin, and tells the shell to rescan plugins. A validation failure is rolled back automatically. Local changes inside the installed checkout can prevent a fast-forward, so treat that checkout as managed code rather than a customization directory.
+Omarchy shows the diff, asks for confirmation, performs a fast-forward-only update, validates the plugin, and rescans plugins. Validation failure rolls the checkout back. Local changes in the managed checkout can prevent the update.
 
-A rescan does not reliably replace QML components and singleton services that are already loaded. After updating, complete any dependency sync described below, then restart the shell:
+A rescan does not reliably replace loaded QML components and singleton services. After an update and any required dependency sync, restart the shell:
 
 ```bash
 omarchy restart shell
 ```
 
-The restart replaces the existing Quickshell process; it does not start a second shell. Bar settings and Garmin data remain in their separate configuration and XDG paths.
-
-Release tags provide auditable version points, but the default branch is the delivery channel used by `omarchy plugin update`. Changes are therefore developed and reviewed on branches, and the default branch must remain installable. The permanent plugin ID keeps bar settings attached to the plugin, while tokens, account scope, the database, and display caches remain in their separate XDG locations during code updates.
-
-Python application code is installed from the checkout in the dedicated environment. If an update only changes that source, the existing environment continues to use the updated checkout. If `pyproject.toml` or `uv.lock` changes, rerun the locked dependency setup in a visible terminal before relying on the updated backend:
+The restart replaces the existing Quickshell process; it does not launch a second shell. If `pyproject.toml` or `uv.lock` changed, sync the locked environment before restarting:
 
 ```bash
 PLUGIN_DIR="$HOME/.config/omarchy/plugins/io.github.paulpitchford.garmin-insights"
@@ -185,9 +293,178 @@ UV_PROJECT_ENVIRONMENT="$CACHE_ROOT/omarchy-garmin-insights/uv-environment" \
 omarchy restart shell
 ```
 
+Release tags are auditable version points. The default branch remains the delivery channel used by `omarchy plugin update`. Bar settings and Garmin data remain in separate configuration and XDG locations when the checkout changes.
+
+## Stop collection, log out, purge, or remove
+
+These actions are deliberately separate:
+
+| Action | Tokens | Activities | Wellness | Display caches | Future wellness requests |
+|---|---|---|---|---|---|
+| Stop Wellness collection | Keep | Keep | Keep | Keep | Stop |
+| Logout | Remove | Keep | Keep | Keep | Stop until login |
+| Purge | Remove | Remove | Remove | Remove | Stop until login |
+| Remove plugin | Keep | Keep | Keep | Keep | Plugin no longer runs |
+
+The examples below use the helper defined under [Backend commands](#backend-commands). Disable the plugin before command-line maintenance so its service cannot start another refresh:
+
+```bash
+omarchy plugin disable io.github.paulpitchford.garmin-insights
+```
+
+Stop future Wellness requests without disconnecting or deleting retained data:
+
+```bash
+backend wellness collection --disable --confirm
+```
+
+Disconnect Garmin while keeping local insights:
+
+```bash
+backend auth logout --confirm
+```
+
+Delete known Garmin tokens, account scope, activities, wellness data, and display caches:
+
+```bash
+backend auth purge --confirm
+```
+
+Remove the checkout separately:
+
+```bash
+omarchy plugin remove io.github.paulpitchford.garmin-insights
+```
+
+Plugin removal intentionally leaves local data, update metadata, and the Python environment in place. Run purge before removal if Garmin data should be deleted. After purge and removal, delete the environment and non-sensitive update metadata with:
+
+```bash
+if [[ ${XDG_CACHE_HOME:-} = /* ]]; then
+  CACHE_ROOT="$XDG_CACHE_HOME"
+else
+  CACHE_ROOT="$HOME/.cache"
+fi
+rm -rf -- "$CACHE_ROOT/omarchy-garmin-insights/uv-environment"
+rm -f -- "$CACHE_ROOT/omarchy-garmin-insights/update-check.json"
+rmdir -- "$CACHE_ROOT/omarchy-garmin-insights" 2>/dev/null || true
+```
+
+Purge leaves empty application directories, runtime locks, and update metadata. None contains Garmin data after purge. The runtime directory is normally cleared when the user session ends.
+
+Logout and purge remove local tokens only. They do not revoke tokens on Garmin's servers.
+
+## Storage and privacy
+
+Standard XDG defaults apply when a variable is unset.
+
+| Data | Path | Retention |
+|---|---|---|
+| Garmin tokens | `$XDG_STATE_HOME/omarchy-garmin-insights/auth/garmin_tokens.json` | Until logout or purge |
+| Pseudonymous account fingerprint | `$XDG_DATA_HOME/omarchy-garmin-insights/account_scope.json` | Until purge |
+| Normalized activities and Wellness scalars | `$XDG_DATA_HOME/omarchy-garmin-insights/activities.sqlite3` | Activities: 90 dates; Wellness: 30 dates |
+| Activity summary | `$XDG_CACHE_HOME/omarchy-garmin-insights/summary.json` | Replaced after successful Activity refresh |
+| Activity trends | `$XDG_CACHE_HOME/omarchy-garmin-insights/activity-trends.json` | Replaced after successful generation |
+| Wellness presentation | `$XDG_CACHE_HOME/omarchy-garmin-insights/wellness.json` | Replaced after successful source commits and generation |
+| Update metadata | `$XDG_CACHE_HOME/omarchy-garmin-insights/update-check.json` | Last attempt and validated public commit IDs |
+| Shared refresh lock | `$XDG_RUNTIME_DIR/omarchy-garmin-insights/sync.lock` | Runtime only |
+| Update lock | `$XDG_RUNTIME_DIR/omarchy-garmin-insights/update-check.lock` | Runtime only |
+| Python environment | `$XDG_CACHE_HOME/omarchy-garmin-insights/uv-environment` | Until removed manually |
+
+Defaults are `~/.local/state`, `~/.local/share`, and `~/.cache`. Private directories use mode `0700`; private files use mode `0600`. Storage rejects unsafe final symlinks, unexpected owners, non-regular files, and oversized content.
+
+QML never opens private cache files, SQLite, tokens, or raw Garmin responses. It asks the short-lived backend to read a fixed cache kind. The backend uses a nonblocking, no-follow open, verifies the final file, enforces the contract's byte limit, and returns a bounded response. QML applies a five-second deadline and validates the complete response before replacing in-memory state.
+
+The account fingerprint is a one-way SHA-256 value used to prevent data from two Garmin accounts being merged. The raw account identifier, email address, display name, and profile response are not stored. A different authenticated account is rejected until the user explicitly purges the existing account scope. Private Wellness cadence and collection state stay in SQLite and never enter the display contract.
+
+### Stored Activity fields
+
+The Activity allowlist is Garmin activity ID, optional activity name, original type key, local start time and date, duration, moving duration, distance, elevation gain, energy, average and maximum heart rate, average speed, average power, total sets, and total repetitions.
+
+Coordinates, routes, maps, raw responses, complete remote URLs, and complete profile data are discarded. The aggregate summary excludes activity names, identifiers, and start times. Activity trends also exclude type strings and contain only calendar buckets, aggregate metrics, and contributor counts.
+
+### Stored Wellness fields
+
+Wellness storage contains only the local date and approved daily scalars:
+
+- Steps and Garmin's goal.
+- Body Battery charged, drained, lowest, highest, and latest values.
+- Sleep score, total duration, and Deep, Light, REM, and Awake durations.
+- Training Readiness score and Garmin level.
+- HRV weekly average, last-night average, Garmin status, and balanced baseline bounds.
+- Resting heart rate.
+
+Body Battery samples and Training Readiness selection timestamps are transient reduction inputs and are discarded before persistence. Missing values remain null, explicit zero remains zero, and remote status text is displayed only as plain text.
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting and the complete security boundary.
+
+## Network access
+
+Setup downloads locked packages from:
+
+- `pypi.org`
+- `files.pythonhosted.org`
+
+If Python 3.13 is unavailable, `uv` can download a managed CPython build from the `astral-sh/python-build-standalone` releases through:
+
+- `github.com`
+- `release-assets.githubusercontent.com`
+
+A selected mise shim can contact destinations configured by mise. That tool-manager traffic is outside Garmin Insights' fixed package and Garmin host list.
+
+The optional update check contacts only:
+
+```text
+https://github.com/paulpitchford/omarchy-garmin-insights.git
+```
+
+It sends no Garmin token, account data, Activity data, Wellness data, analytics identifier, referrer, or telemetry. GitHub and the network path still receive ordinary connection metadata such as source IP and TLS details. Set `checkForUpdates` to `false` to disable it.
+
+Garmin authentication can contact:
+
+- `sso.garmin.com`
+- `connect.garmin.com`
+- `connectapi.garmin.com`
+- `diauth.garmin.com`
+- `mobile.integration.garmin.com`
+
+Activity refresh uses the read-only `/activitylist-service/activities/search/activities` endpoint on `connectapi.garmin.com` through `get_activities_by_date` without an activity-type filter.
+
+A Wellness command verifies the account with `/userprofile-service/socialProfile`, then uses only these read-only endpoint shapes from `garminconnect==0.3.11`:
+
+- `/usersummary-service/usersummary/daily/{displayName}` for current Steps, goal, and resting heart rate.
+- `/usersummary-service/stats/steps/daily/{start}/{end}` for daily Steps.
+- `/wellness-service/wellness/bodyBattery/reports/daily` for daily Body Battery reduction.
+- `/sleep-service/stats/sleep/daily/{start}/{end}` and `/wellness-service/wellness/dailySleepData/{displayName}` for Sleep.
+- `/hrv-service/hrv/daily/{start}/{end}` and `/hrv-service/hrv/{date}` for HRV.
+- `/userstats-service/wellness/daily/{displayName}` with metric ID 60 for resting heart rate.
+- `/metrics-service/metrics/trainingreadiness/{date}` for Training Readiness.
+
+One Wellness command makes at most one verification call, 18 planned data calls, and one retry of one transport or HTTP 5xx failure. The hard limit is 20 Garmin HTTP attempts and a 120-second deadline. Authentication failures and HTTP 429 do not retry.
+
+`python-garminconnect` is an unofficial client. Garmin can change or rate-limit the web services it uses.
+
+## Runtime dependencies
+
+| Package | Version | Relationship | Licence |
+|---|---:|---|---|
+| `garminconnect` | 0.3.11 | Direct | MIT |
+| `curl-cffi` | 0.16.2 | Transitive | MIT |
+| `certifi` | 2026.7.22 | Transitive | MPL-2.0 |
+| `cffi` | 2.1.1 | Transitive | MIT-0 |
+| `pycparser` | 3.0 | Transitive | BSD-3-Clause |
+| `requests` | 2.34.2 | Transitive | Apache-2.0 |
+| `charset-normalizer` | 3.5.1 | Transitive | MIT |
+| `idna` | 3.19 | Transitive | BSD-3-Clause |
+| `urllib3` | 2.7.0 | Transitive | MIT |
+| `ua-generator` | 2.1.3 | Transitive | Apache-2.0 |
+
+Versions, source archives, and hashes are fixed in `uv.lock`. Package metadata and installed licence files are authoritative for transitive notices. Direct dependency attribution is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Omarchy supplies the plugin host, Quickshell, Qt, `qs.Commons`, `qs.Ui`, the terminal launcher, `/usr/bin/python3`, and `/usr/bin/git`. This repository does not redistribute those system components.
+
 ## Backend commands
 
-The panel runs routine commands through `uv run --locked --no-sync`. To run the same backend manually, prepare these variables in a terminal:
+The panel runs routine commands through `uv run --locked --no-sync`. To use the same backend manually, define this helper:
 
 ```bash
 PLUGIN_DIR="$HOME/.config/omarchy/plugins/io.github.paulpitchford.garmin-insights"
@@ -236,204 +513,75 @@ backend activities list --json --period 30Days --as-of 2026-08-26 --type-key run
 backend activities detail --json --activity-id 900000000001
 ```
 
-Run `auth login` only in a visible interactive terminal. `auth status` checks local files and makes no Garmin request, so configured tokens remain "unverified" until login or refresh succeeds.
+Run `auth login` only in a visible interactive terminal. `auth status` reads local files and makes no Garmin request, so configured tokens remain unverified until login or refresh succeeds.
 
-`wellness refresh --manual` bypasses current-value cadence but not historical reconciliation or backfill cooldowns. A collection change requires `--confirm`, makes no Garmin request, and does not delete retained data.
+`wellness refresh --manual` bypasses current-value cadence but not historical reconciliation or backfill cooldowns. A collection change requires `--confirm`, makes no Garmin request, and retains stored data.
 
-`auth logout --confirm` removes Garmin tokens but keeps the account scope, activity and wellness database rows, and display caches. `auth purge --confirm` removes all known Garmin authentication, activity data, wellness data, and display caches. Purge does not remove the downloaded Python environment.
+`auth logout --confirm` removes tokens but keeps account scope, Activity rows, Wellness rows, and display caches. `auth purge --confirm` removes all known Garmin authentication, the account database, and Garmin display caches. Purge does not remove the Python environment.
 
-## Storage and privacy
+### Executables used by the plugin
 
-The backend and update helper use the same XDG paths. Standard defaults apply when state, data, or cache variables are unset.
-
-| Data | Path | Retention |
-|---|---|---|
-| Garmin tokens | `$XDG_STATE_HOME/omarchy-garmin-insights/auth/garmin_tokens.json` | Until logout or purge |
-| Account fingerprint | `$XDG_DATA_HOME/omarchy-garmin-insights/account_scope.json` | Until purge |
-| Normalised activities and daily wellness scalars | `$XDG_DATA_HOME/omarchy-garmin-insights/activities.sqlite3` | Activities: rolling 90 days; wellness: rolling 30 days |
-| Interface summary | `$XDG_CACHE_HOME/omarchy-garmin-insights/summary.json` | Replaced after a successful activity refresh |
-| Activity trends | `$XDG_CACHE_HOME/omarchy-garmin-insights/activity-trends.json` | Replaced after a successful activity refresh when generation succeeds |
-| Wellness presentation | `$XDG_CACHE_HOME/omarchy-garmin-insights/wellness.json` | Replaced after successful source commits when generation succeeds |
-| Update-check metadata | `$XDG_CACHE_HOME/omarchy-garmin-insights/update-check.json` | Last attempt and compared commit IDs |
-| Refresh lock | `$XDG_RUNTIME_DIR/omarchy-garmin-insights/sync.lock` | Runtime coordination only |
-| Update-check lock | `$XDG_RUNTIME_DIR/omarchy-garmin-insights/update-check.lock` | Runtime coordination only |
-| Python environment | `$XDG_CACHE_HOME/omarchy-garmin-insights/uv-environment` | Until removed manually |
-
-Defaults are `~/.local/state`, `~/.local/share`, and `~/.cache`. Private application data directories are secured to mode `0700`; private files use mode `0600`. Storage operations reject unsafe final symlinks, unexpected owners, non-regular files, and oversized private files.
-
-The long-lived QML service does not open display-cache paths. It invokes the short-lived `cache read` backend command with a fixed reviewed cache kind. The backend opens the final component without following symlinks and in nonblocking mode, verifies that it is a regular owner-owned file, and reads no more than that contract's byte limit. The QML service applies a five-second command deadline and validates the bounded response before replacing in-memory state.
-
-The account fingerprint is a one-way SHA-256 value used to prevent data from two Garmin accounts being merged. The raw account identifier, email address, display name, and Garmin profile response are not saved. Private wellness cadence and collection state stay in SQLite and never enter the display contract. Update-check metadata contains only a timestamp and validated public Git commit IDs. It contains no Garmin account, activity, or wellness data.
-
-The activity allowlist contains Garmin activity ID, optional activity name, original type key, local start time and date, duration, moving duration, distance, elevation gain, energy, average and maximum heart rate, average speed, average power, total sets, and total repetitions. Activity names, identifiers, type strings, and start times are excluded from the activity-trends cache; summary schema version 1 also excludes names, identifiers, and start times. Separate bounded list and detail responses expose only the fields needed for an explicit local drill-down. Coordinates, routes, maps, raw responses, complete URLs, and complete profile data are not persisted or returned by those contracts.
-
-Wellness storage contains only the local date and approved daily scalars: Steps and Garmin's goal; Body Battery charged, drained, low, high, and latest; Sleep score, duration, and stage durations; Training Readiness score and Garmin level; HRV averages, Garmin status, and balanced baseline bounds; and resting heart rate. Body Battery samples and Training Readiness selection timestamps are discarded at the boundary. Missing values stay null, explicit zero remains zero, and remote status text is displayed only as plain text.
-
-See [SECURITY.md](SECURITY.md) for reporting instructions and the complete security boundary.
-
-## Disconnect, purge, and remove
-
-Disable the plugin before maintenance so its shared service does not start another refresh:
-
-```bash
-omarchy plugin disable io.github.paulpitchford.garmin-insights
-```
-
-To stop future wellness requests without disconnecting or deleting retained data, run the [backend command setup](#backend-commands), then:
-
-```bash
-backend wellness collection --disable --confirm
-```
-
-To disconnect while retaining local activity and wellness data:
-
-```bash
-backend auth logout --confirm
-```
-
-To delete known Garmin tokens, account scope, activities, wellness data, and display caches:
-
-```bash
-backend auth purge --confirm
-```
-
-Remove the plugin checkout separately:
-
-```bash
-omarchy plugin remove io.github.paulpitchford.garmin-insights
-```
-
-Plugin removal intentionally leaves local data, update-check metadata, and the Python environment in place. To remove the dependency environment and non-sensitive update-check metadata after purge and plugin removal:
-
-```bash
-if [[ ${XDG_CACHE_HOME:-} = /* ]]; then
-  CACHE_ROOT="$XDG_CACHE_HOME"
-else
-  CACHE_ROOT="$HOME/.cache"
-fi
-rm -rf -- "$CACHE_ROOT/omarchy-garmin-insights/uv-environment"
-rm -f -- "$CACHE_ROOT/omarchy-garmin-insights/update-check.json"
-rmdir -- "$CACHE_ROOT/omarchy-garmin-insights" 2>/dev/null || true
-```
-
-Purge leaves application directories, runtime locks, and update-check metadata. None of these contains Garmin data after purge. The runtime directory is normally cleared when the user session ends.
-
-Neither logout nor purge revokes tokens on Garmin's servers. They only remove local files.
-
-## Network access and dependencies
-
-Setup downloads locked packages from `pypi.org` and `files.pythonhosted.org`. If Python 3.13 is unavailable, `uv` can download a managed CPython build from the `astral-sh/python-build-standalone` releases through `github.com` and `release-assets.githubusercontent.com`.
-
-An enabled update check makes an ordinary unauthenticated Git HTTPS request to `https://github.com/paulpitchford/omarchy-garmin-insights.git`. It sends no Garmin token, account data, activity data, analytics identifier, referrer, or telemetry. GitHub and the network path still receive the normal connection metadata, such as the source IP address and TLS request details. Set `checkForUpdates` to `false` to disable this request.
-
-The backend runtime dependency set is:
-
-| Package | Version | Relationship | Licence |
-|---|---:|---|---|
-| `garminconnect` | 0.3.11 | Direct | MIT |
-| `curl-cffi` | 0.16.2 | Transitive | MIT |
-| `certifi` | 2026.7.22 | Transitive | MPL-2.0 |
-| `cffi` | 2.1.1 | Transitive | MIT-0 |
-| `pycparser` | 3.0 | Transitive | BSD-3-Clause |
-| `requests` | 2.34.2 | Transitive | Apache-2.0 |
-| `charset-normalizer` | 3.5.1 | Transitive | MIT |
-| `idna` | 3.19 | Transitive | BSD-3-Clause |
-| `urllib3` | 2.7.0 | Transitive | MIT |
-| `ua-generator` | 2.1.3 | Transitive | Apache-2.0 |
-
-Versions, source archives, and hashes are fixed in `uv.lock`. Package metadata and installed licence files are authoritative for transitive notices. Direct dependency notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-Omarchy supplies the plugin host, Quickshell, Qt, `qs.Commons`, `qs.Ui`, and the terminal launcher. The repository does not redistribute those system components. `uv` supplies a compatible CPython runtime when one is not already available. A selected mise shim can also contact destinations configured by mise; that tool-manager traffic is outside the plugin's fixed package and Garmin host list.
-
-Garmin authentication can contact:
-
-- `sso.garmin.com`
-- `connect.garmin.com`
-- `connectapi.garmin.com`
-- `diauth.garmin.com`
-- `mobile.integration.garmin.com`
-
-Activity refreshes use the read-only `/activitylist-service/activities/search/activities` endpoint on `connectapi.garmin.com` through `get_activities_by_date`, without an activity-type filter. List and detail reads use SQLite only and make no network request. The explicit detail action opens `https://connect.garmin.com/app/activity/<validated-decimal-id>` in the default browser.
-
-A wellness command verifies the account with `/userprofile-service/socialProfile`, then uses only these read-only endpoint shapes from `garminconnect==0.3.11`:
-
-- `/usersummary-service/usersummary/daily/{displayName}` for the current Steps, goal, and resting heart rate summary;
-- `/usersummary-service/stats/steps/daily/{start}/{end}` for daily Steps;
-- `/wellness-service/wellness/bodyBattery/reports/daily` for daily Body Battery reduction;
-- `/sleep-service/stats/sleep/daily/{start}/{end}` and `/wellness-service/wellness/dailySleepData/{displayName}` for Sleep;
-- `/hrv-service/hrv/daily/{start}/{end}` and `/hrv-service/hrv/{date}` for HRV;
-- `/userstats-service/wellness/daily/{displayName}` with metric ID 60 for resting heart rate; and
-- `/metrics-service/metrics/trainingreadiness/{date}` for Training Readiness.
-
-One wellness command makes at most one verification call, 18 planned data calls, and one retry of a single transport or HTTP 5xx failure, with no more than 20 HTTP attempts in total and a 120-second Garmin deadline. Authentication failures and HTTP 429 do not retry. The shared QML service runs activity and wellness commands sequentially under a 249-second combined deadline. Both backend commands use the same owner-only lock.
-
-`python-garminconnect` is an unofficial client. Garmin may change or rate-limit the web services it uses.
-
-### Commands executed by the plugin
-
-The QML service uses fixed executable paths and direct argument arrays:
+The service uses fixed executable paths and direct argument arrays:
 
 - `/usr/bin/test -x` checks the three accepted `uv` locations.
-- `/usr/bin/python3` runs the tracked stdlib-only cache bootstrap before uv, rejecting unsafe paths and securing `$XDG_CACHE_HOME/omarchy-garmin-insights` as mode `0700`.
-- `/usr/bin/python3` also runs the tracked update helper to validate the installed checkout and atomically claim or record the 24-hour cadence. The helper does not make network requests or start subprocesses.
-- `/usr/bin/git` reads the supported checkout's top level, branch, and local commit with bounded direct commands. It queries only the fixed public repository and `refs/heads/main`, with interactive credentials and Git configuration rewrites disabled.
-- `/usr/bin/env` sets only `UV_PROJECT_ENVIRONMENT` for each backend process.
-- The selected `uv` runs `run --locked --no-sync omarchy-garmin-insights auth status --json`, sequential activity and wellness refreshes, confirmed local collection/logout/purge actions, fixed-kind cache reads, and bounded activity list or detail reads in the background.
-- `/usr/bin/xdg-open` opens the installed local `README.md` when **Help and privacy** is selected.
+- `/usr/bin/python3` runs the tracked standard-library-only cache bootstrap before `uv`. It rejects unsafe paths and secures `$XDG_CACHE_HOME/omarchy-garmin-insights` as mode `0700`.
+- `/usr/bin/python3` also runs the tracked update helper. The helper validates the installed checkout, claims or records the 24-hour cadence atomically, and starts no subprocess or network request.
+- `/usr/bin/git` reads the supported checkout's top level, branch, and local commit with bounded direct commands. Its only network query uses the fixed public repository and `refs/heads/main`, with interactive credentials and configuration rewrites disabled.
+- `/usr/bin/env` sets only `UV_PROJECT_ENVIRONMENT` for backend processes.
+- The selected `uv` runs `run --locked --no-sync omarchy-garmin-insights` for authentication status, sequential Activity and Wellness refreshes, confirmed collection, logout, and purge actions, fixed-kind cache reads, and bounded Activity list and detail reads.
+- `/usr/bin/xdg-open` opens the installed local `README.md` from **Help and privacy**.
 - `/usr/share/omarchy/bin/omarchy-launch-terminal` opens visible setup, login, and update-review terminals.
 - Setup runs `uv sync --locked --no-dev`.
 - Login runs `uv run --locked --no-sync omarchy-garmin-insights auth login`.
 - Update review runs `/usr/bin/omarchy plugin update io.github.paulpitchford.garmin-insights` without `--yes`.
 
-The Python backend does not start subprocesses. It reads and writes only the documented local paths and makes the documented Garmin requests.
+The Python backend does not start subprocesses. It reads and writes only the documented local paths and makes only the documented Garmin requests.
 
 ## Troubleshooting
 
-### No update indicator
+### The backend needs setup
 
-The update controls appear only for the supported checkout described in [Update](#update). Confirm that the plugin is installed at `~/.config/omarchy/plugins/io.github.paulpitchford.garmin-insights`, its origin is the exact public HTTPS URL, and it is attached to `main`. The controls stay hidden for copied, symlinked, detached, locally reconfigured, or otherwise unsupported checkouts.
+Install `uv` at one of the accepted paths under [Requirements](#requirements), reopen the panel, and select **Set up backend**. Garmin Insights does not download or execute a `uv` installer. If setup was interrupted, run it again; the locked sync is idempotent.
 
-Automatic checks wait 30 seconds and then respect the 24-hour cache. Use **Check again** for a manual query. GitHub being offline, a timeout, or an invalid response does not create a Garmin error banner. Check normal HTTPS connectivity to GitHub if a manual check produces no result.
+### Garmin asks to reconnect
 
-### Updated files but old interface
+Open the panel and choose **Connect Garmin** or **Reconnect Garmin**. Authentication failures and HTTP 429 are not retried automatically. Wait for a rate limit to expire before retrying.
 
-If `omarchy plugin update` reports success but the panel still shows the previous interface, run:
+If a different account reports `account_mismatch`, retained data belongs to the previous account scope. Logout reconnects the same account. Purge is required before adopting another account.
+
+### Data is stale or unavailable
+
+The plugin preserves the last valid data after network failure, rate limiting, malformed Garmin input, interrupted transactions, and interrupted cache writes. It marks data stale and never substitutes zero for a missing measurement.
+
+Middle-click the widget or press `R` to retry. A manual refresh can consume an already pending recovery attempt, but it cannot overlap another refresh.
+
+A source-level 404 marks that Wellness source unsupported. An empty date remains missing. One unsupported or failed source does not hide other Wellness categories or Activity data.
+
+A first successful Activity refresh is required before real Activity data appears. Missing or invalid display caches are rebuilt after a successful backend commit. QML never queries SQLite directly.
+
+### Wellness collection is off
+
+Use **Settings > Wellness collection** or:
+
+```bash
+backend wellness collection --enable --confirm
+```
+
+Re-enabling collection starts a bounded refresh. It does not bypass historical reconciliation or backfill cooldowns.
+
+### Update controls do not appear
+
+Update controls require the exact supported checkout described under [Update](#update). Automatic checks wait 30 seconds and respect the 24-hour cache. Use **Check now** for a manual query. An offline, failed, timed-out, or malformed result does not create a Garmin error.
+
+### The checkout updated but the interface did not
+
+Restart the shell:
 
 ```bash
 omarchy restart shell
 ```
 
-Plugin rescanning and file watching do not reliably evict QML components that are already loaded. Confirm the installed checkout moved to the expected commit as well as checking the visible interface.
-
-### Backend setup required
-
-Install `uv` at one of the accepted paths listed under [Requirements](#requirements), then reopen the panel and select **Set up backend**. The plugin does not download or execute an installer for `uv`.
-
-If setup was interrupted, select **Set up backend** again. The locked sync is idempotent.
-
-### Connect or reconnect Garmin
-
-Open the panel and select **Connect Garmin** or **Reconnect Garmin**. Authentication failures and HTTP 429 responses are not retried automatically. A rate limit should be allowed to expire before trying again.
-
-If a different Garmin account reports `account_mismatch`, the retained data belongs to the previous account scope. Use logout to reconnect the same account, or purge explicitly before adopting a different account.
-
-### Offline or stale summary
-
-The plugin keeps the last valid cache after network failures, rate limiting, malformed Garmin data, an interrupted database update, or an interrupted cache write. It marks the summary stale rather than replacing missing measurements with zero.
-
-After a suspend-length timer gap, the shared service waits 15 seconds for networking to settle before making a normal refresh. An offline or remote-service result can then schedule at most two more refresh commands, after 30 seconds and two minutes. A successful refresh clears the offline state. Authentication expiry, rate limiting, and local storage failures do not use this recovery sequence. The plugin does not run a generic internet probe or add a connectivity-tracking service.
-
-Middle-click the widget or press `R` in the panel to retry immediately; a manual refresh uses any already pending recovery attempt rather than starting an overlapping request. Only one refresh can run at a time. Each backend refresh has a 120-second overall Garmin request deadline and at most one retry for transient network or server failures.
-
-### No cached summary
-
-A first successful activity refresh is needed before real activity data can be displayed. If a display cache is missing or invalid, the relevant backend refresh rebuilds it after a successful commit. QML never queries SQLite directly.
-
-### Missing or unsupported wellness values
-
-A missing source or metric stays unavailable rather than becoming zero. A source-level 404 is shown as unsupported, while an empty date remains missing. Valid retained values keep their dates after an isolated source failure. Device and account support varies, so one unsupported source does not hide other wellness categories or activity data.
-
-Stopping wellness collection prevents every future wellness request but keeps retained rows and presentation data. Use **Settings > Wellness collection** or `backend wellness collection --enable --confirm` to resume. Re-enabling starts a bounded refresh; it does not bypass historical or backfill cooldowns.
+A plugin rescan or file watcher does not reliably evict loaded QML components and singleton services. Confirm both the installed commit and the running interface.
 
 ### Local storage error
 
@@ -443,53 +591,67 @@ Run:
 backend doctor
 ```
 
-Check the reported XDG paths. The application directories and files must belong to the current user and must not be replaced with symlinks. A refresh also requires an absolute `XDG_RUNTIME_DIR`.
+Check the reported XDG paths. Directories and files must belong to the current user and must not be replaced with symlinks. Refresh also requires an absolute `XDG_RUNTIME_DIR`.
 
-### Inspect safe machine output
+### Safe machine-readable diagnostics
 
-Use the JSON forms of `doctor`, `auth status`, `refresh`, `wellness refresh`, `wellness collection`, `cache read`, `activities list`, and `activities detail`. Errors contain a reviewed code and fixed message. Unknown exception text, SQL details, remote response bodies, credentials, and command arguments are not reflected in output.
+The JSON forms of `doctor`, `auth status`, `refresh`, `wellness refresh`, `wellness collection`, `cache read`, `activities list`, and `activities detail` return reviewed fields and stable error codes. They never return unknown exception text, SQL details, raw remote responses, credentials, or backend command arguments.
 
-Process exit categories are `0` for success, `2` for invalid arguments, `10` for configuration, `20` for authentication, `30` for network or Garmin service failures, `40` for invalid data, `50` for local storage, `60` for concurrency, and `70` for unexpected internal failures.
+Exit categories are:
 
-## Summary contract
+| Code | Category |
+|---:|---|
+| 0 | Success |
+| 2 | Invalid arguments |
+| 10 | Configuration |
+| 20 | Authentication |
+| 30 | Network or Garmin service |
+| 40 | Invalid data |
+| 50 | Local storage |
+| 60 | Concurrency |
+| 70 | Unexpected internal failure |
 
-Summary schema version 1 contains today, 7-day, 30-day, and 90-day periods. Today includes today. The other periods include today and the preceding 6, 29, or 89 local dates.
+## Data contracts
 
-Every metric has a `contributingActivityCount`. A metric is `null` when no activity supplied a usable value; missing measurements are never converted to zero. Average heart rate and average power are weighted by activity duration. Average speed is weighted by moving duration. Values without a positive matching duration do not contribute. Maximum heart rate is the highest supplied value, and the remaining measurements are sums.
+### Activity summary
 
-The cache is limited to 20,000 activities, 256 original activity type keys, and 1 MiB of JSON. Measurements remain in SI units until the QML presentation boundary.
+Summary schema version 1 contains Today, 7-day, 30-day, and 90-day periods. Today includes the machine's current local date. The other periods include that date and the preceding 6, 29, or 89 local dates. Each metric has a `contributingActivityCount`. A metric is `null` when no activity supplied a usable value.
 
-## Activity-trends contract
+Average heart rate and average power use Activity duration weighting. Average speed uses moving-duration weighting. Values without a positive matching duration do not contribute. Maximum heart rate is the highest supplied value; the remaining measurements are sums.
 
-Activity-trends schema version 1 is a separate optional cache generated from the same normalized 90-day SQLite snapshot after reconciliation. It makes no additional Garmin request. The 7- and 30-day periods contain daily points. The 90-day period contains one six-day oldest bucket followed by twelve seven-day buckets, all anchored to the summary's local end date.
+A refresh accepts at most 20,000 activities and 256 original activity type keys. Summary JSON is capped at 1 MiB. Canonical measurements remain in SI units until presentation.
 
-Each point contains only its calendar boundaries, partial-current-period marker, activity count, and summed duration, distance, elevation, and energy with contributor counts. It contains no activity identifiers, names, start times, type strings, routes, coordinates, or raw responses. A day or bucket with no activities is an explicit zero. If activities exist but none supplied a metric, that metric remains `null`. QML validates the complete shape and displays trends only when their generation timestamp, dates, and activity counts match the current summary. Missing, stale, malformed, oversized, or unwritable trends do not replace or hide a valid summary.
+### Activity trends
 
-The trend cache is capped at 50 points and 64 KiB, written atomically with mode `0600`, and removed by explicit purge. Measurements remain in SI units. The Activities view can chart time, distance, elevation gain, or energy, one metric at a time.
+Activity-trends schema version 1 is derived from the same normalized 90-day snapshot without another Garmin request. Seven-day and 30-day periods use daily points. The 90-day period uses one six-day oldest bucket followed by twelve seven-day buckets.
 
-## Wellness contract
+Each point contains calendar boundaries, a partial-current-period marker, activity count, and summed duration, distance, elevation, and energy with contributor counts. A bucket with no activities is explicit zero. A metric that no recorded activity supplied remains `null`.
 
-Wellness presentation schema version 1 always contains 30 ordered local dates ending on `asOfLocalDate`. Every date has fixed nullable groups for the approved scalars. It also contains 7-day and 30-day contributor counts for each scalar, the seven source states with freshness and a stable failure classification, collection state, and current-day partial markers for Steps and Body Battery. It contains no account scope, request metadata, exception text, timestamps used to select a readiness snapshot, or remote extras. The cache is capped at 64 KiB.
+QML displays trends only when their generation timestamp, dates, and counts match the current summary. A missing, stale, malformed, oversized, or unwritable trend never replaces or hides a valid summary. The cache is capped at 50 points and 64 KiB, written atomically with mode `0600`, and removed by purge.
 
-Today is the machine's local date. Sleep belongs to Garmin's returned calendar date for the night ending on that date. Range-capable sources receive an initial 30-day reconciliation and another full reconciliation no more than once per seven local dates; other local dates use a seven-day overlap. Current Steps and Body Battery can refresh every 30 minutes. Current Sleep and Training Readiness can refresh every four hours. Detailed Sleep backfill targets the current seven dates, while Training Readiness backfill targets the retained 30 dates. Backfill selects at most two dates per source, four single-date calls per command, and has a one-hour cooldown.
+### Wellness presentation
 
-Each successful source commits and updates its own freshness independently. Invalid, unsupported, interrupted, or failed sources keep their previous rows and freshness. A null does not overwrite a retained non-null value. Disabling collection is idempotent and makes no Garmin request. Logout retains wellness rows; purge removes them.
+Wellness schema version 1 always contains 30 ordered local dates ending on `asOfLocalDate`. It has fixed nullable groups for the approved scalars, 7-day and 30-day contributor counts for every scalar, seven source states with freshness and stable failure classification, collection state, and partial-current-day markers for Steps and Body Battery.
 
-## Activity drill-down contracts
+The presentation contains no account scope, request metadata, exception text, Training Readiness selection timestamps, or unreviewed remote fields. It is capped at 64 KiB. Today is the machine's local date. Sleep belongs to Garmin's calendar date for the night ending on that date. Valid zero remains a contributor; missing stays null.
 
-`activities list` accepts one reviewed period key, the summary's local end date, an optional original type key, and a page offset. It returns newest-first local records in fixed pages of at most 20, with `hasMore` and a bounded next offset. Older summary dates are marked stale. `activities detail` accepts only a canonical decimal activity ID and returns either the complete allowlisted local record or `{\"found\":false,\"activity\":null}` if reconciliation removed it.
+### Local Activity list and detail
 
-Both commands open SQLite read-only, apply a two-second query deadline, cap JSON at 64 KiB, validate every field again before serialization, and never authenticate, refresh, or contact Garmin. QML applies the same shape, value, string, ordering, identifier, and size checks before displaying a response. Missing metrics remain absent from the detail view rather than appearing as zero.
+`activities list` accepts one period key, the summary end date, an optional original type key, and a page offset. It returns newest-first records in pages of at most 20 with `hasMore` and a bounded next offset. A request tied to an older summary date is marked stale.
+
+`activities detail` accepts a canonical decimal Activity ID and returns the allowlisted local record or `{"found":false,"activity":null}` if reconciliation removed it.
+
+Both commands open SQLite read-only, apply a two-second query deadline, cap JSON at 64 KiB, and validate every field before serialization. They never authenticate, refresh, or contact Garmin. QML validates shape, values, text, order, identifiers, and size again before display. A missing metric remains absent from detail rather than appearing as zero.
 
 ## Development
 
-The Python backend supports Python 3.12 and 3.13. Set up the development environment:
+The backend supports Python 3.12 and 3.13.
 
 ```bash
 uv sync --locked --dev
 ```
 
-Run the Python quality suite:
+Run the Python suite:
 
 ```bash
 uv run ruff format --check .
@@ -499,7 +661,7 @@ uv run pytest
 uv run pyscn check --max-complexity 12 --max-cycles 0 src
 ```
 
-Run QML and Omarchy checks:
+Run QML and plugin checks:
 
 ```bash
 QT_QPA_PLATFORM=offscreen /usr/lib/qt6/bin/qmltestrunner -input tests/qml
@@ -519,14 +681,14 @@ omarchy plugin validate "$PLUGIN_DIR"
   "$PLUGIN_DIR/Service.qml"
 ```
 
-`PLUGIN_DIR` must point to a clean checkout or staging copy. A development tree containing `.venv` symlinks is intentionally rejected by Omarchy validation.
+`PLUGIN_DIR` must refer to a clean checkout or staging copy. Omarchy validation intentionally rejects a development tree containing `.venv` symlinks.
 
-Tests and previews must use fabricated identities and activities. Do not add Garmin exports, tokens, FIT files, routes, coordinates, account details, or personal API responses to this repository.
+Tests, previews, and documentation must use fabricated identities and data. Never add Garmin exports, tokens, FIT files, routes, coordinates, account details, health records, or personal API responses to this repository.
 
 ## Disclaimer
 
-This is an independent community project. It is not affiliated with, sponsored by, or endorsed by Garmin, Omarchy, 37signals, or the Omarchy Plugins marketplace. Activity information is for personal reference and is not medical advice.
+Garmin Insights is an independent community project. It is not affiliated with, sponsored by, or endorsed by Garmin, Omarchy, 37signals, or the Omarchy Plugins marketplace. Activity and wellness information is for personal reference and is not medical advice.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+Garmin Insights is available under the [MIT License](LICENSE).
