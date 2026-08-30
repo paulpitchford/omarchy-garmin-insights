@@ -3,12 +3,11 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 
 
-def test_phase_eight_keeps_the_completed_shell_dormant() -> None:
+def test_phase_nine_enables_the_completed_wellness_shell() -> None:
     widget = (ROOT / "BarWidget.qml").read_text(encoding="utf-8")
     shell = (ROOT / "PanelShell.qml").read_text(encoding="utf-8")
 
-    assert 'source: Qt.resolvedUrl("Panel.qml")' in widget
-    assert "PanelShell.qml" not in widget
+    assert 'source: Qt.resolvedUrl("PanelShell.qml")' in widget
     assert "WellnessShellPage {" in shell
 
 
@@ -235,6 +234,8 @@ def test_latest_activity_is_loaded_through_the_existing_bounded_local_contract()
     assert '"activities", "list", "--json", "--period", "90Days"' in service
     assert "result.page.endDate === currentPeriod.endDate" in service
     assert "service.loadLatestActivity()" in shell
+    assert "function onRefreshingChanged()" in shell
+    assert "root.service && !root.service.refreshing" in shell
 
 
 def test_latest_activity_is_hidden_during_load_and_after_background_failure() -> None:

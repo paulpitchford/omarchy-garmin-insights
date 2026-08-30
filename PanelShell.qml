@@ -33,6 +33,13 @@ Panel {
   signal purgeRequested()
   signal helpRequested()
 
+  onWellnessCollectionChangeRequested: function(enabled) {
+    if (service) service.setWellnessCollection(enabled)
+  }
+  onLogoutRequested: if (service) service.logout()
+  onPurgeRequested: if (service) service.purge()
+  onHelpRequested: if (service) service.openHelp()
+
   function switchPanel(direction) {
     if (bar && typeof bar.switchPanelFrom === "function")
       return bar.switchPanelFrom(hostWidget || root, direction)
@@ -56,7 +63,7 @@ Panel {
     if (service.connectionState === "unauthenticated") return "Connect Garmin"
     if (service.connectionState === "reconnect") return "Reconnect Garmin"
     if (service.connectionState === "localError") return "Retry Garmin backend"
-    return service.refreshing ? "Refreshing activities" : "Refresh activities"
+    return service.refreshing ? "Refreshing Garmin insights" : "Refresh Garmin insights"
   }
 
   function currentPage() {
@@ -266,6 +273,10 @@ Panel {
     target: root.service
     function onSummaryChanged() {
       if (root.opened && root.service)
+        Qt.callLater(function() { root.service.loadLatestActivity() })
+    }
+    function onRefreshingChanged() {
+      if (root.opened && root.service && !root.service.refreshing)
         Qt.callLater(function() { root.service.loadLatestActivity() })
     }
   }

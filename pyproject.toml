@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "omarchy-garmin-insights"
 version = "0.1.1"
-description = "Garmin activity summaries for the Omarchy bar"
+description = "Garmin activity and bounded daily wellness insights for the Omarchy bar"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = "MIT"

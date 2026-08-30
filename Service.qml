@@ -26,6 +26,17 @@ Item {
   property int authPollTicks: 0
   property bool statusTimedOut: false
   property bool refreshTimedOut: false
+  property bool wellnessRefreshTimedOut: false
+  property bool combinedRefreshTimedOut: false
+  property string refreshOriginKind: ""
+  property bool wellnessManualRefresh: false
+  property bool activityRefreshIncluded: false
+  property string activityRefreshResultKind: ""
+  property string wellnessFailureKind: ""
+  property string wellnessFailureCode: ""
+  property string actionKind: ""
+  property bool actionRequestedCollectionEnabled: false
+  property bool actionTimedOut: false
   property bool summaryCacheTimedOut: false
   property bool activityTrendsCacheTimedOut: false
   property bool wellnessCacheTimedOut: false
@@ -120,9 +131,10 @@ Item {
     || updateGitProcess.running
   readonly property bool displayCacheRunning: summaryCacheProcess.running
     || activityTrendsCacheProcess.running || wellnessCacheProcess.running
+  readonly property bool actionRunning: actionProcess.running
   readonly property bool processRunning: uvProbe.running || cacheRootProcess.running
-    || authStatusProcess.running || refreshProcess.running || activityViewRunning
-    || displayCacheRunning
+    || authStatusProcess.running || refreshProcess.running || wellnessRefreshProcess.running
+    || actionRunning || activityViewRunning || displayCacheRunning
 
   function absoluteEnvironmentPath(name, fallback) {
     var value = String(Quickshell.env(name) || "")
@@ -140,6 +152,10 @@ Item {
     refreshMinutes = parsedMinutes
     demoMode = nextDemo
     updateChecksEnabled = nextUpdateChecks
+    if (demoMode) {
+      wellnessFailureKind = ""
+      wellnessFailureCode = ""
+    }
     if (!nextUpdateChecks && updateSettingChanged) cancelUpdateCheck()
     else if (nextUpdateChecks && updateSettingChanged && !updateInitialCheckStarted)
       updateStartupDelay.restart()
@@ -147,11 +163,17 @@ Item {
     if (demoChanged && demoMode) {
       authStatusProcess.running = false
       refreshProcess.running = false
+      wellnessRefreshProcess.running = false
+      actionProcess.running = false
       activityListProcess.running = false
       activityDetailProcess.running = false
       summaryCacheProcess.running = false
       activityTrendsCacheProcess.running = false
       wellnessCacheProcess.running = false
+      refreshDeadline.stop()
+      wellnessRefreshDeadline.stop()
+      combinedRefreshDeadline.stop()
+      actionDeadline.stop()
       summaryCacheDeadline.stop()
       activityTrendsCacheDeadline.stop()
       wellnessCacheDeadline.stop()
@@ -159,9 +181,16 @@ Item {
       activityTrendsCacheReloadPending = false
       wellnessCacheReloadPending = false
       refreshing = false
+      refreshOriginKind = ""
+      wellnessManualRefresh = false
+      activityRefreshIncluded = false
+      actionKind = ""
+      actionRequestedCollectionEnabled = false
       stopRecovery()
       failureKind = ""
       failureCode = ""
+      wellnessFailureKind = ""
+      wellnessFailureCode = ""
     } else if (!demoMode && uvPath === "" && !uvProbe.running) {
       probeUvCandidate(0)
     } else if (!demoMode && !cacheRootReady) {
@@ -440,7 +469,7 @@ Item {
 
   function checkAuthentication() {
     if (demoMode || !cacheRootReady || uvPath === "" || sourceDir === "" || authStatusProcess.running
-        || refreshProcess.running || activityViewRunning) return
+        || refreshing || actionRunning || activityViewRunning) return
     statusTimedOut = false
     authStatusProcess.command = backendCommand(["auth", "status", "--json"])
     authStatusProcess.running = true
@@ -483,7 +512,7 @@ Item {
       stopRecovery()
       return
     }
-    if (authStatusProcess.running || refreshProcess.running || activityViewRunning) {
+    if (authStatusProcess.running || refreshing || actionRunning || activityViewRunning) {
       scheduleRecovery(Model.RECOVERY_BUSY_DELAY_MS)
       return
     }
@@ -492,23 +521,77 @@ Item {
 
   function refresh(requestedOrigin) {
     var origin = Model.refreshOrigin(requestedOrigin, recoveryTimer.running)
+    var wellnessManual = ["scheduled", "authentication", "recovery"].indexOf(
+      String(requestedOrigin || "")) === -1
     if (demoMode) {
       stopRecovery()
       nowMs = Date.now()
       return true
     }
-    if (!backendReady || !configured || authStatusProcess.running || refreshProcess.running
-        || activityViewRunning || (origin === "scheduled" && recoveryActive)) return false
+    if (!backendReady || !configured || authStatusProcess.running || refreshing
+        || actionRunning || activityViewRunning
+        || (origin === "scheduled" && recoveryActive)) return false
     if (origin === "recovery") recoveryTimer.stop()
     else stopRecovery()
     failureKind = ""
     failureCode = ""
+    wellnessFailureKind = ""
+    wellnessFailureCode = ""
+    refreshOriginKind = origin
+    wellnessManualRefresh = wellnessManual
+    activityRefreshIncluded = true
+    activityRefreshResultKind = "local"
     refreshing = true
     refreshTimedOut = false
+    wellnessRefreshTimedOut = false
+    combinedRefreshTimedOut = false
     refreshProcess.command = backendCommand(["refresh", "--json"])
     refreshProcess.running = true
     refreshDeadline.restart()
+    combinedRefreshDeadline.restart()
     return true
+  }
+
+  function refreshWellnessScheduled() {
+    if (demoMode || !backendReady || !configured || authStatusProcess.running || refreshing
+        || actionRunning || activityViewRunning || recoveryActive) return false
+    wellnessFailureKind = ""
+    wellnessFailureCode = ""
+    refreshOriginKind = "wellness-scheduled"
+    wellnessManualRefresh = false
+    activityRefreshIncluded = false
+    refreshing = true
+    wellnessRefreshTimedOut = false
+    combinedRefreshTimedOut = false
+    combinedRefreshDeadline.restart()
+    startWellnessRefresh()
+    return true
+  }
+
+  function startWellnessRefresh() {
+    if (combinedRefreshTimedOut) {
+      wellnessFailureKind = "offline"
+      wellnessFailureCode = "request_timeout"
+      finishCombinedRefresh()
+      return
+    }
+    wellnessRefreshTimedOut = false
+    var arguments = ["wellness", "refresh", "--json"]
+    if (wellnessManualRefresh) arguments.push("--manual")
+    wellnessRefreshProcess.command = backendCommand(arguments)
+    wellnessRefreshProcess.running = true
+    wellnessRefreshDeadline.restart()
+  }
+
+  function finishCombinedRefresh() {
+    refreshDeadline.stop()
+    wellnessRefreshDeadline.stop()
+    combinedRefreshDeadline.stop()
+    refreshing = false
+    refreshOriginKind = ""
+    wellnessManualRefresh = false
+    if (activityRefreshIncluded) applyRecoveryResult(activityRefreshResultKind)
+    activityRefreshIncluded = false
   }
 
   function periodAllowsType(period, typeKey) {
@@ -523,7 +606,7 @@ Item {
     var period = Model.periodByKey(summary, "90Days")
     latestActivity = null
     if (!period || activityViewRunning || authStatusProcess.running
-        || refreshProcess.running) return false
+        || refreshing || actionRunning) return false
     if (demoMode) {
       var synthetic = Model.syntheticActivityPage("90Days", period.endDate, null, 0)
       latestActivity = synthetic && synthetic.activities.length > 0
@@ -564,7 +647,8 @@ Item {
       if (!activityPage) activityViewError = "invalid_response"
       return
     }
-    if (!backendReady || activityViewRunning || authStatusProcess.running || refreshProcess.running) {
+    if (!backendReady || activityViewRunning || authStatusProcess.running || refreshing
+        || actionRunning) {
       activityViewError = "backend_unavailable"
       return
     }
@@ -602,7 +686,8 @@ Item {
       activityDetailMissing = activityDetail === null
       return
     }
-    if (!backendReady || activityViewRunning || authStatusProcess.running || refreshProcess.running) {
+    if (!backendReady || activityViewRunning || authStatusProcess.running || refreshing
+        || actionRunning) {
       activityViewError = "backend_unavailable"
       return
     }
@@ -667,34 +752,62 @@ Item {
   }
 
   function handleRefresh(exitCode, raw) {
-    refreshing = false
+    refreshDeadline.stop()
+    if (demoMode) {
+      combinedRefreshDeadline.stop()
+      refreshing = false
+      return
+    }
     var envelope = parseEnvelope(raw, "refresh")
     if (refreshTimedOut) {
       failureKind = "offline"
       failureCode = "request_timeout"
-      applyRecoveryResult(failureKind)
-      return
-    }
-    if (!envelope) {
+      activityRefreshResultKind = failureKind
+    } else if (!envelope) {
       backendReady = false
       failureKind = "local"
       failureCode = "backend_unavailable"
-      applyRecoveryResult(failureKind)
-      return
-    }
-    if (exitCode !== 0 || envelope.ok !== true) {
+      activityRefreshResultKind = failureKind
+    } else if (exitCode !== 0 || envelope.ok !== true) {
       safeFailure(envelope.error ? envelope.error.code : "internal_error")
-      applyRecoveryResult(failureKind)
+      activityRefreshResultKind = failureKind
+    } else {
+      backendReady = true
+      configured = true
+      verified = true
+      failureKind = ""
+      failureCode = ""
+      activityRefreshResultKind = "success"
+      refreshGeneration++
+      requestSummaryCacheReload()
+      requestActivityTrendsCacheReload()
+    }
+    startWellnessRefresh()
+  }
+
+  function handleWellnessRefresh(exitCode, raw) {
+    wellnessRefreshDeadline.stop()
+    if (demoMode) {
+      combinedRefreshDeadline.stop()
+      refreshing = false
       return
     }
-    backendReady = true
-    configured = true
-    verified = true
-    failureKind = ""
-    failureCode = ""
-    applyRecoveryResult("success")
-    refreshGeneration++
-    requestDisplayCacheReload()
+    var envelope = parseEnvelope(raw, "wellness.refresh")
+    if (wellnessRefreshTimedOut || combinedRefreshTimedOut) {
+      wellnessFailureKind = "offline"
+      wellnessFailureCode = "request_timeout"
+    } else if (!envelope) {
+      wellnessFailureKind = "local"
+      wellnessFailureCode = "backend_unavailable"
+    } else if (exitCode !== 0 || envelope.ok !== true) {
+      wellnessFailureCode = String(envelope.error ? envelope.error.code : "internal_error")
+      wellnessFailureKind = Model.failureKindForCode(wellnessFailureCode)
+    } else {
+      wellnessFailureKind = ""
+      wellnessFailureCode = ""
+      requestWellnessCacheReload()
+    }
+    finishCombinedRefresh()
   }
 
   function handleSummaryCache(exitCode, raw) {
@@ -786,6 +899,85 @@ Item {
     activityDetail = result.activity
     activityDetailMissing = !result.found
     activityViewError = ""
+  }
+
+  function startAction(kind, arguments) {
+    if (demoMode || !backendReady || refreshing || actionRunning || authStatusProcess.running
+        || activityViewRunning || displayCacheRunning || uvPath === "" || sourceDir === "")
+      return false
+    actionKind = kind
+    actionTimedOut = false
+    failureKind = ""
+    failureCode = ""
+    actionProcess.command = backendCommand(arguments)
+    actionProcess.running = true
+    actionDeadline.restart()
+    return true
+  }
+
+  function setWellnessCollection(enabled) {
+    actionRequestedCollectionEnabled = enabled === true
+    return startAction("collection", [
+      "wellness", "collection", "--json", actionRequestedCollectionEnabled ? "--enable" : "--disable",
+      "--confirm"
+    ])
+  }
+
+  function logout() {
+    return startAction("logout", ["auth", "logout", "--json", "--confirm"])
+  }
+
+  function purge() {
+    return startAction("purge", ["auth", "purge", "--json", "--confirm"])
+  }
+
+  function openHelp() {
+    if (sourceDir === "") return false
+    Quickshell.execDetached(["/usr/bin/xdg-open", sourceDir + "/README.md"])
+    return true
+  }
+
+  function handleAction(exitCode, raw) {
+    actionDeadline.stop()
+    if (demoMode) return
+    var completedKind = actionKind
+    actionKind = ""
+    var expectedCommand = completedKind === "collection"
+      ? "wellness.collection" : "auth." + completedKind
+    var envelope = parseEnvelope(raw, expectedCommand)
+    var dataValid = envelope && envelope.data && typeof envelope.data === "object"
+      && (completedKind === "collection"
+        ? typeof envelope.data.collectionEnabled === "boolean"
+          && envelope.data.collectionEnabled === actionRequestedCollectionEnabled
+        : envelope.data.configured === false)
+    if (actionTimedOut || !envelope || exitCode !== 0 || envelope.ok !== true || !dataValid) {
+      actionRequestedCollectionEnabled = false
+      safeFailure(actionTimedOut ? "request_timeout"
+        : envelope && envelope.error ? envelope.error.code : "internal_error")
+      return
+    }
+    failureKind = ""
+    failureCode = ""
+    if (completedKind === "collection") {
+      var collectionEnabled = actionRequestedCollectionEnabled
+      actionRequestedCollectionEnabled = false
+      requestWellnessCacheReload()
+      if (collectionEnabled) Qt.callLater(function() { root.refresh("manual") })
+      return
+    }
+    configured = false
+    verified = false
+    stopRecovery()
+    if (completedKind === "purge") {
+      cachedSummary = null
+      cachedActivityTrends = null
+      cachedWellness = null
+      cacheError = "missing"
+      activityTrendsCacheError = "missing"
+      wellnessCacheError = "missing"
+      clearActivityViews()
+      latestActivity = null
+    }
   }
 
   function launchSetup() {
@@ -882,6 +1074,24 @@ Item {
   }
 
   Process {
+    id: wellnessRefreshProcess
+    command: []
+    stdout: StdioCollector { id: wellnessRefreshStdout; waitForEnd: true }
+    onExited: function(exitCode) {
+      root.handleWellnessRefresh(exitCode, wellnessRefreshStdout.text)
+    }
+  }
+
+  Process {
+    id: actionProcess
+    command: []
+    stdout: StdioCollector { id: actionStdout; waitForEnd: true }
+    onExited: function(exitCode) {
+      root.handleAction(exitCode, actionStdout.text)
+    }
+  }
+
+  Process {
     id: summaryCacheProcess
     command: []
     stdout: StdioCollector { id: summaryCacheStdout; waitForEnd: true }
@@ -966,10 +1176,43 @@ Item {
 
   Timer {
     id: refreshDeadline
-    interval: 125000
+    interval: 124000
     onTriggered: {
       root.refreshTimedOut = true
       refreshProcess.running = false
+    }
+  }
+
+  Timer {
+    id: wellnessRefreshDeadline
+    interval: 124000
+    onTriggered: {
+      root.wellnessRefreshTimedOut = true
+      wellnessRefreshProcess.running = false
+    }
+  }
+
+  Timer {
+    id: combinedRefreshDeadline
+    interval: 249000
+    onTriggered: {
+      root.combinedRefreshTimedOut = true
+      if (refreshProcess.running) {
+        root.refreshTimedOut = true
+        refreshProcess.running = false
+      } else if (wellnessRefreshProcess.running) {
+        root.wellnessRefreshTimedOut = true
+        wellnessRefreshProcess.running = false
+      } else root.finishCombinedRefresh()
+    }
+  }
+
+  Timer {
+    id: actionDeadline
+    interval: 15000
+    onTriggered: {
+      root.actionTimedOut = true
+      actionProcess.running = false
     }
   }
 
@@ -1048,6 +1291,16 @@ Item {
         root.scheduleRecovery(Model.RESUME_RECOVERY_DELAY_MS)
       } else root.runRecoveryAttempt()
     }
+  }
+
+  Timer {
+    id: wellnessScheduleTimer
+    // Offset the private 30-minute cadence slightly so an activity timer due
+    // at the same boundary gets priority and performs the combined refresh.
+    interval: 1805000
+    repeat: true
+    running: !root.demoMode
+    onTriggered: root.refreshWellnessScheduled()
   }
 
   Timer {
