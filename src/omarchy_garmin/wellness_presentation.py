@@ -329,7 +329,9 @@ def _bounded_days(days: Sequence[DailyWellness], as_of_date: date) -> tuple[Dail
         by_date[day.calendar_date] = day
     return tuple(
         by_date.get(current, DailyWellness(calendar_date=current))
-        for current in (start_date + timedelta(days=offset) for offset in range(30))
+        for current in (
+            start_date + timedelta(days=offset) for offset in range(WELLNESS_RETENTION_DAYS)
+        )
     )
 
 
