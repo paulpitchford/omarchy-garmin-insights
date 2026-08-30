@@ -91,11 +91,12 @@ def test_failed_future_migration_rolls_back_schema_and_preserves_data(
         completed_at=_COMPLETED_AT,
         full=True,
     )
+    future_version = SCHEMA_VERSION + 1
     failing_migrations = {
         **database_module._MIGRATIONS,
-        2: "CREATE TABLE migration_probe (value TEXT) STRICT; INVALID SQL;",
+        future_version: "CREATE TABLE migration_probe (value TEXT) STRICT; INVALID SQL;",
     }
-    monkeypatch.setattr(database_module, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(database_module, "SCHEMA_VERSION", future_version)
     monkeypatch.setattr(database_module, "_MIGRATIONS", failing_migrations)
 
     with pytest.raises(ActivityDatabaseError):
@@ -106,7 +107,7 @@ def test_failed_future_migration_rolls_back_schema_and_preserves_data(
         probe_table = connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'migration_probe'"
         ).fetchone()
-    assert version == 1
+    assert version == SCHEMA_VERSION
     assert probe_table is None
     assert _rows(database) == [("101", "Synthetic activity", "synthetic_sport", "2026-08-25")]
 
