@@ -29,6 +29,13 @@ def test_phase_six_shell_is_dormant_and_uses_public_panel_fitting() -> None:
     assert "anchors.top: shellHeader.bottom" in shell
     assert "anchors.bottom: shellFooter.top" in shell
     assert "Controls.ScrollBar.vertical: Controls.ScrollBar" in shell
+    assert "PointerMoveGate {" in shell
+    assert "referenceItem: keyCatcher" in shell
+    assert "pagePointerGate.reset()" in shell
+    assert "pagePointerGate.moved(pageScroll" in shell
+    assert "currentPage().cursorIndex = 0" in shell
+    assert "function followKeyboardCursor(delta)" in shell
+    assert "pageScroll.contentY + delta * Style.space(56)" in shell
     assert "columns: root.wideLayout ? 2 : 1" in (ROOT / "SettingsView.qml").read_text(
         encoding="utf-8"
     )

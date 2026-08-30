@@ -79,6 +79,15 @@ Panel {
     })
   }
 
+  function followKeyboardCursor(delta) {
+    if (delta === 0) return
+    Qt.callLater(function() {
+      pageScroll.contentY = Math.max(0, Math.min(
+        pageScroll.contentY + delta * Style.space(56),
+        Math.max(0, pageScroll.contentHeight - pageScroll.height)))
+    })
+  }
+
   function switchMode(index) {
     saveScroll()
     session.switchMode(index)
@@ -178,6 +187,7 @@ Panel {
   }
 
   function moveCursor(dx, dy) {
+    pagePointerGate.reset()
     cursorActive = true
     if (session.confirmationKind !== "") {
       if (dx !== 0 || dy !== 0) confirmation.selectedIndex = confirmation.selectedIndex === 0 ? 1 : 0
@@ -190,7 +200,10 @@ Panel {
     if (focusArea === "nav") {
       if (dx !== 0) switchMode(navCursorIndex + dx)
       else if (dy < 0) focusArea = "header"
-      else if (dy > 0) focusArea = "content"
+      else if (dy > 0) {
+        currentPage().cursorIndex = 0
+        focusArea = "content"
+      }
       return
     }
     var page = currentPage()
@@ -201,9 +214,11 @@ Panel {
       return
     }
     page.moveCursor(dx, dy)
+    followKeyboardCursor(dy)
   }
 
   function activateCursor() {
+    pagePointerGate.reset()
     cursorActive = true
     if (session.confirmationKind !== "") {
       if (confirmation.selectedIndex === 0) cancelConfirmation()
@@ -237,6 +252,7 @@ Panel {
     navCursorIndex = 0
     focusArea = "nav"
     cursorActive = false
+    pagePointerGate.reset()
     scrollPositions = ({})
     pageScroll.contentY = 0
     if (service && service.summaryStale) service.refresh()
@@ -244,6 +260,11 @@ Panel {
   }
 
   PanelSession { id: session }
+
+  PointerMoveGate {
+    id: pagePointerGate
+    referenceItem: keyCatcher
+  }
 
   KeyboardPanel {
     id: panel
@@ -375,7 +396,11 @@ Panel {
         }
 
         HoverHandler {
-          onHoveredChanged: if (hovered) {
+          id: pagePointer
+          onPointChanged: {
+            if (!hovered || !pagePointerGate.moved(pageScroll, {
+                x: point.position.x, y: point.position.y
+              })) return
             root.cursorActive = true
             root.focusArea = "content"
           }
