@@ -47,7 +47,6 @@ from omarchy_garmin.wellness_sync import (
     WellnessRateLimitedError,
     WellnessRemoteServiceError,
     WellnessSyncConfigurationError,
-    WellnessSyncError,
 )
 
 
@@ -561,6 +560,22 @@ def test_wellness_rejects_invalid_tokens_before_constructing_client(
     garmin_constructor.assert_not_called()
 
 
+def test_wellness_rejects_dependency_token_load_failure_without_exposing_detail(
+    garmin_constructor: Mock,
+) -> None:
+    garmin = garmin_constructor.return_value
+    garmin.client.loads.side_effect = GarminConnectConnectionError("private token detail")
+
+    with (
+        pytest.raises(WellnessInvalidDataError) as caught,
+        GarminWellnessGateway(sleeper=Mock()).connect(_token().encode()),
+    ):
+        pytest.fail("failed token load must not yield a connection")
+
+    assert "private" not in str(caught.value)
+    garmin.connectapi.assert_not_called()
+
+
 def test_wellness_rejects_invalid_refreshed_tokens(garmin_constructor: Mock) -> None:
     garmin_constructor.return_value.client.dumps.side_effect = [_token(), "{}"]
 
@@ -571,14 +586,25 @@ def test_wellness_rejects_invalid_refreshed_tokens(garmin_constructor: Mock) -> 
         connection.refreshed_session()
 
 
+@pytest.mark.parametrize(
+    "display_name",
+    [
+        pytest.param("unsafe/name", id="path-separator"),
+        pytest.param("unsafe?query", id="query-separator"),
+        pytest.param("unsafe#fragment", id="fragment-separator"),
+        pytest.param("unsafe\\name", id="backslash"),
+        pytest.param("unsafe\nname", id="control-character"),
+    ],
+)
 def test_wellness_verification_rejects_unsafe_display_name_without_data_calls(
     garmin_constructor: Mock,
+    display_name: str,
 ) -> None:
     garmin = garmin_constructor.return_value
-    garmin.connectapi.return_value = {"profileId": 10101, "displayName": "unsafe/name\n"}
+    garmin.connectapi.return_value = {"profileId": 10101, "displayName": display_name}
 
     with (
-        pytest.raises(WellnessSyncError),
+        pytest.raises(WellnessInvalidDataError),
         GarminWellnessGateway(sleeper=Mock()).connect(_token().encode()),
     ):
         pytest.fail("invalid verification must not yield a connection")

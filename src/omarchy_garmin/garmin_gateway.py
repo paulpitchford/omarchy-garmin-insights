@@ -440,7 +440,16 @@ class GarminWellnessGateway:
         )
         try:
             with _request_deadline(_WELLNESS_DEADLINE_SECONDS):
-                client.client.loads(token_text)
+                try:
+                    client.client.loads(token_text)
+                except (
+                    GarminConnectAuthenticationError,
+                    GarminConnectConnectionError,
+                    GarminConnectTooManyRequestsError,
+                ) as error:
+                    raise WellnessInvalidDataError(
+                        "stored Garmin tokens could not be loaded"
+                    ) from error
                 profile = connection.verify_profile()
                 try:
                     session = GarminAuthGateway._session(client, profile)
@@ -463,6 +472,7 @@ class GarminWellnessGateway:
             not isinstance(value, str)
             or not value
             or len(value) > _MAX_DISPLAY_NAME_LENGTH
+            or any(character in "/?#\\" for character in value)
             or any(unicodedata.category(character).startswith("C") for character in value)
         ):
             raise InvalidAuthResponseError("Garmin profile display name is invalid")
