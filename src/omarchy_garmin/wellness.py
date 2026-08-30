@@ -126,3 +126,43 @@ class TrainingReadinessDay:
     calendar_date: date
     score: int | None
     level: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class DailyWellness:
+    """One normalized stored day containing only approved wellness scalars."""
+
+    calendar_date: date
+    steps: int | None = None
+    step_goal: int | None = None
+    body_battery_charged: int | None = None
+    body_battery_drained: int | None = None
+    body_battery_lowest: int | None = None
+    body_battery_highest: int | None = None
+    body_battery_latest: int | None = None
+    sleep_score: int | None = None
+    sleep_total_seconds: int | None = None
+    sleep_deep_seconds: int | None = None
+    sleep_light_seconds: int | None = None
+    sleep_rem_seconds: int | None = None
+    sleep_awake_seconds: int | None = None
+    training_readiness_score: int | None = None
+    training_readiness_level: str | None = None
+    hrv_weekly_average_ms: float | None = None
+    hrv_last_night_average_ms: float | None = None
+    hrv_status: str | None = None
+    hrv_balanced_low_ms: float | None = None
+    hrv_balanced_upper_ms: float | None = None
+    resting_heart_rate_bpm: int | None = None
+
+
+WellnessWriteDay = (
+    UserSummaryDay
+    | StepsDay
+    | BodyBatteryDay
+    | SleepRangeDay
+    | SleepDay
+    | HrvDay
+    | RestingHeartRateDay
+    | TrainingReadinessDay
+)

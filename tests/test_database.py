@@ -91,11 +91,12 @@ def test_failed_future_migration_rolls_back_schema_and_preserves_data(
         completed_at=_COMPLETED_AT,
         full=True,
     )
+    future_version = SCHEMA_VERSION + 1
     failing_migrations = {
         **database_module._MIGRATIONS,
-        2: "CREATE TABLE migration_probe (value TEXT) STRICT; INVALID SQL;",
+        future_version: "CREATE TABLE migration_probe (value TEXT) STRICT; INVALID SQL;",
     }
-    monkeypatch.setattr(database_module, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(database_module, "SCHEMA_VERSION", future_version)
     monkeypatch.setattr(database_module, "_MIGRATIONS", failing_migrations)
 
     with pytest.raises(ActivityDatabaseError):
@@ -106,9 +107,48 @@ def test_failed_future_migration_rolls_back_schema_and_preserves_data(
         probe_table = connection.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'migration_probe'"
         ).fetchone()
-    assert version == 1
+    assert version == SCHEMA_VERSION
     assert probe_table is None
     assert _rows(database) == [("101", "Synthetic activity", "synthetic_sport", "2026-08-25")]
+
+
+def test_read_only_activity_page_migrates_schema_one_before_offline_read(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "activities.sqlite3"
+    with closing(sqlite3.connect(database)) as connection:
+        connection.executescript(database_module._MIGRATION_1)
+        connection.execute("PRAGMA user_version = 1")
+        connection.execute(
+            """
+            INSERT INTO activities (
+                activity_id, name, type_key, started_at_local, local_date, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "101",
+                "Fabricated offline activity",
+                "synthetic_sport",
+                "2026-08-25 08:15:00",
+                "2026-08-25",
+                _COMPLETED_AT.isoformat(timespec="seconds"),
+            ),
+        )
+        connection.commit()
+    repository = ActivityRepository(database)
+
+    activities = repository.activity_page(
+        date(2026, 8, 20),
+        date(2026, 8, 26),
+        type_key=None,
+        offset=0,
+        limit=20,
+    )
+
+    with closing(sqlite3.connect(database)) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+    assert [activity.activity_id for activity in activities] == ["101"]
+    assert version == SCHEMA_VERSION
 
 
 def test_incremental_reconcile_updates_changes_and_removes_remote_deletions(

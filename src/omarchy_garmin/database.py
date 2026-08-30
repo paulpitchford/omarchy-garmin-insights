@@ -22,11 +22,15 @@ from omarchy_garmin.storage import (
     private_file_exists,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
-class ActivityDatabaseError(RuntimeError):
-    """Raised when the activity database cannot be used safely."""
+class GarminDatabaseError(RuntimeError):
+    """Raised when the account database cannot be used safely."""
+
+
+# Preserve the activity-facing exception name used by the existing sync contract.
+ActivityDatabaseError = GarminDatabaseError
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +72,157 @@ CREATE TABLE sync_state (
     value TEXT NOT NULL
 ) STRICT;
 """
-_MIGRATIONS = {1: _MIGRATION_1}
+_MIGRATION_2 = """
+CREATE TABLE wellness_account_scope (
+    singleton_id INTEGER PRIMARY KEY NOT NULL CHECK (singleton_id = 1),
+    account_fingerprint TEXT UNIQUE NOT NULL,
+    CHECK (length(account_fingerprint) = 64),
+    CHECK (account_fingerprint NOT GLOB '*[^0-9a-f]*')
+) STRICT, WITHOUT ROWID;
+CREATE TABLE wellness_daily (
+    account_fingerprint TEXT NOT NULL,
+    calendar_date TEXT NOT NULL,
+    steps INTEGER,
+    step_goal INTEGER,
+    body_battery_charged INTEGER,
+    body_battery_drained INTEGER,
+    body_battery_lowest INTEGER,
+    body_battery_highest INTEGER,
+    body_battery_latest INTEGER,
+    sleep_score INTEGER,
+    sleep_total_seconds INTEGER,
+    sleep_deep_seconds INTEGER,
+    sleep_light_seconds INTEGER,
+    sleep_rem_seconds INTEGER,
+    sleep_awake_seconds INTEGER,
+    training_readiness_score INTEGER,
+    training_readiness_level TEXT,
+    hrv_weekly_average_ms REAL,
+    hrv_last_night_average_ms REAL,
+    hrv_status TEXT,
+    hrv_balanced_low_ms REAL,
+    hrv_balanced_upper_ms REAL,
+    resting_heart_rate_bpm INTEGER,
+    PRIMARY KEY (account_fingerprint, calendar_date),
+    FOREIGN KEY (account_fingerprint)
+        REFERENCES wellness_account_scope(account_fingerprint) ON DELETE CASCADE,
+    CHECK (length(calendar_date) = 10),
+    CHECK (steps IS NULL OR steps BETWEEN 0 AND 1000000),
+    CHECK (step_goal IS NULL OR step_goal BETWEEN 0 AND 1000000),
+    CHECK (body_battery_charged IS NULL OR body_battery_charged BETWEEN 0 AND 1000),
+    CHECK (body_battery_drained IS NULL OR body_battery_drained BETWEEN 0 AND 1000),
+    CHECK (body_battery_lowest IS NULL OR body_battery_lowest BETWEEN 0 AND 100),
+    CHECK (body_battery_highest IS NULL OR body_battery_highest BETWEEN 0 AND 100),
+    CHECK (body_battery_latest IS NULL OR body_battery_latest BETWEEN 0 AND 100),
+    CHECK (
+        body_battery_lowest IS NULL OR body_battery_highest IS NULL
+        OR body_battery_lowest <= body_battery_highest
+    ),
+    CHECK (sleep_score IS NULL OR sleep_score BETWEEN 0 AND 100),
+    CHECK (sleep_total_seconds IS NULL OR sleep_total_seconds BETWEEN 0 AND 86400),
+    CHECK (sleep_deep_seconds IS NULL OR sleep_deep_seconds BETWEEN 0 AND 86400),
+    CHECK (sleep_light_seconds IS NULL OR sleep_light_seconds BETWEEN 0 AND 86400),
+    CHECK (sleep_rem_seconds IS NULL OR sleep_rem_seconds BETWEEN 0 AND 86400),
+    CHECK (sleep_awake_seconds IS NULL OR sleep_awake_seconds BETWEEN 0 AND 86400),
+    CHECK (
+        coalesce(sleep_deep_seconds, 0) + coalesce(sleep_light_seconds, 0)
+        + coalesce(sleep_rem_seconds, 0) + coalesce(sleep_awake_seconds, 0) <= 86400
+    ),
+    CHECK (training_readiness_score IS NULL OR training_readiness_score BETWEEN 0 AND 100),
+    CHECK (
+        training_readiness_level IS NULL
+        OR length(training_readiness_level) BETWEEN 1 AND 64
+    ),
+    CHECK (hrv_weekly_average_ms IS NULL OR hrv_weekly_average_ms BETWEEN 0 AND 1000),
+    CHECK (
+        hrv_last_night_average_ms IS NULL OR hrv_last_night_average_ms BETWEEN 0 AND 1000
+    ),
+    CHECK (hrv_status IS NULL OR length(hrv_status) BETWEEN 1 AND 64),
+    CHECK (hrv_balanced_low_ms IS NULL OR hrv_balanced_low_ms BETWEEN 0 AND 1000),
+    CHECK (hrv_balanced_upper_ms IS NULL OR hrv_balanced_upper_ms BETWEEN 0 AND 1000),
+    CHECK (
+        hrv_balanced_low_ms IS NULL OR hrv_balanced_upper_ms IS NULL
+        OR hrv_balanced_low_ms <= hrv_balanced_upper_ms
+    ),
+    CHECK (resting_heart_rate_bpm IS NULL OR resting_heart_rate_bpm BETWEEN 20 AND 300)
+) STRICT, WITHOUT ROWID;
+CREATE INDEX wellness_daily_calendar_date_idx ON wellness_daily(calendar_date);
+CREATE TABLE wellness_source_state (
+    account_fingerprint TEXT NOT NULL,
+    source TEXT NOT NULL,
+    refreshed_at TEXT NOT NULL,
+    PRIMARY KEY (account_fingerprint, source),
+    FOREIGN KEY (account_fingerprint)
+        REFERENCES wellness_account_scope(account_fingerprint) ON DELETE CASCADE,
+    CHECK (source IN (
+        'user_summary', 'steps', 'body_battery', 'sleep', 'hrv',
+        'resting_heart_rate', 'training_readiness'
+    )),
+    CHECK (length(refreshed_at) BETWEEN 19 AND 40)
+) STRICT, WITHOUT ROWID;
+CREATE TABLE wellness_collection_state (
+    account_fingerprint TEXT PRIMARY KEY NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (account_fingerprint)
+        REFERENCES wellness_account_scope(account_fingerprint) ON DELETE CASCADE,
+    CHECK (enabled IN (0, 1))
+) STRICT, WITHOUT ROWID;
+"""
+_MIGRATIONS = {1: _MIGRATION_1, 2: _MIGRATION_2}
+
+_SCHEMA_1_COLUMNS = {
+    "activities": (
+        "activity_id",
+        "name",
+        "type_key",
+        "started_at_local",
+        "local_date",
+        "duration_seconds",
+        "moving_duration_seconds",
+        "distance_metres",
+        "elevation_gain_metres",
+        "energy_joules",
+        "average_heart_rate_bpm",
+        "maximum_heart_rate_bpm",
+        "average_speed_metres_per_second",
+        "average_power_watts",
+        "total_sets",
+        "total_repetitions",
+        "synced_at",
+    ),
+    "sync_state": ("key", "value"),
+}
+_SCHEMA_2_COLUMNS = {
+    **_SCHEMA_1_COLUMNS,
+    "wellness_account_scope": ("singleton_id", "account_fingerprint"),
+    "wellness_daily": (
+        "account_fingerprint",
+        "calendar_date",
+        "steps",
+        "step_goal",
+        "body_battery_charged",
+        "body_battery_drained",
+        "body_battery_lowest",
+        "body_battery_highest",
+        "body_battery_latest",
+        "sleep_score",
+        "sleep_total_seconds",
+        "sleep_deep_seconds",
+        "sleep_light_seconds",
+        "sleep_rem_seconds",
+        "sleep_awake_seconds",
+        "training_readiness_score",
+        "training_readiness_level",
+        "hrv_weekly_average_ms",
+        "hrv_last_night_average_ms",
+        "hrv_status",
+        "hrv_balanced_low_ms",
+        "hrv_balanced_upper_ms",
+        "resting_heart_rate_bpm",
+    ),
+    "wellness_source_state": ("account_fingerprint", "source", "refreshed_at"),
+    "wellness_collection_state": ("account_fingerprint", "enabled"),
+}
 
 
 def _required_text(value: object) -> str:
@@ -142,15 +296,16 @@ ON CONFLICT(activity_id) DO UPDATE SET
 """
 
 
-class ActivityRepository:
-    """Own schema migration and transactional activity reconciliation."""
+class GarminDatabase:
+    """Own secure connections and transactional schema migration."""
 
     def __init__(self, database_path: Path) -> None:
-        """Initialize the repository with an absolute private database path."""
+        """Initialize the database boundary with an absolute private path."""
         self._database_path = database_path
 
     @contextmanager
-    def _connection(self) -> Iterator[sqlite3.Connection]:
+    def connection(self) -> Iterator[sqlite3.Connection]:
+        """Open a writable, fully migrated connection without waiting on contention."""
         connection: sqlite3.Connection | None = None
         try:
             self._prepare_database_file()
@@ -162,33 +317,51 @@ class ActivityRepository:
             self._migrate(connection)
             yield connection
         except (OSError, sqlite3.Error, UnsafeStoragePathError) as error:
-            raise ActivityDatabaseError("activity database is unsafe or unavailable") from error
+            raise GarminDatabaseError("Garmin database is unsafe or unavailable") from error
         finally:
             if connection is not None:
                 connection.close()
 
     @contextmanager
-    def _read_connection(self) -> Iterator[sqlite3.Connection | None]:
+    def read_connection(self) -> Iterator[sqlite3.Connection | None]:
+        """Open the existing database read-only, migrating an older safe schema first."""
         connection: sqlite3.Connection | None = None
         try:
             if not private_file_exists(self._database_path):
                 yield None
                 return
-            database_uri = f"file:{quote(str(self._database_path), safe='/')}?mode=ro"
-            connection = sqlite3.connect(database_uri, timeout=0, isolation_level=None, uri=True)
-            connection.execute("PRAGMA trusted_schema = OFF")
-            connection.execute("PRAGMA query_only = ON")
+            connection = self._open_read_only()
             current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if current_version < SCHEMA_VERSION:
+                connection.close()
+                connection = None
+                with self.connection():
+                    pass
+                connection = self._open_read_only()
+                current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
             if current_version != SCHEMA_VERSION:
-                raise ActivityDatabaseError("activity database schema is unavailable")
+                raise GarminDatabaseError("Garmin database schema is unavailable")
+            self._validate_schema(connection, current_version)
             deadline = time.monotonic() + 2.0
             connection.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1_000)
             yield connection
         except (OSError, sqlite3.Error, UnsafeStoragePathError) as error:
-            raise ActivityDatabaseError("activity database is unsafe or unavailable") from error
+            raise GarminDatabaseError("Garmin database is unsafe or unavailable") from error
         finally:
             if connection is not None:
                 connection.close()
+
+    def _open_read_only(self) -> sqlite3.Connection:
+        database_uri = f"file:{quote(str(self._database_path), safe='/')}?mode=ro"
+        connection = sqlite3.connect(database_uri, timeout=0, isolation_level=None, uri=True)
+        try:
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("PRAGMA trusted_schema = OFF")
+            connection.execute("PRAGMA query_only = ON")
+        except sqlite3.Error:
+            connection.close()
+            raise
+        return connection
 
     def _prepare_database_file(self) -> None:
         ensure_private_directory(self._database_path.parent)
@@ -204,16 +377,45 @@ class ActivityRepository:
         try:
             metadata = os.fstat(descriptor)
             if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid():
-                raise UnsafeStoragePathError("activity database file is unsafe")
+                raise UnsafeStoragePathError("Garmin database file is unsafe")
             os.fchmod(descriptor, PRIVATE_FILE_MODE)
         finally:
             os.close(descriptor)
 
     @staticmethod
-    def _migrate(connection: sqlite3.Connection) -> None:
+    def _validate_schema(connection: sqlite3.Connection, version: int) -> None:
+        expected = _SCHEMA_1_COLUMNS if version == 1 else _SCHEMA_2_COLUMNS
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            ).fetchall()
+        }
+        if tables != set(expected):
+            raise GarminDatabaseError("Garmin database schema is malformed")
+        for table, expected_columns in expected.items():
+            quoted_table = table.replace('"', '""')
+            columns = tuple(
+                str(row[1])
+                for row in connection.execute(f'PRAGMA table_info("{quoted_table}")').fetchall()
+            )
+            if columns != expected_columns:
+                raise GarminDatabaseError("Garmin database schema is malformed")
+
+    @classmethod
+    def _migrate(cls, connection: sqlite3.Connection) -> None:
         current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
         if current_version > SCHEMA_VERSION:
-            raise ActivityDatabaseError("activity database schema is newer than this backend")
+            raise GarminDatabaseError("Garmin database schema is newer than this backend")
+        if current_version > 0:
+            cls._validate_schema(connection, current_version)
+        elif (
+            connection.execute(
+                "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            ).fetchone()
+            is not None
+        ):
+            raise GarminDatabaseError("Garmin database schema is malformed")
         if current_version == SCHEMA_VERSION:
             return
 
@@ -230,10 +432,19 @@ class ActivityRepository:
         finally:
             if connection.in_transaction:
                 connection.execute("ROLLBACK")
+        cls._validate_schema(connection, SCHEMA_VERSION)
+
+
+class ActivityRepository:
+    """Own transactional activity reconciliation in the account database."""
+
+    def __init__(self, database_path: Path) -> None:
+        """Initialize the repository with an absolute private database path."""
+        self._database = GarminDatabase(database_path)
 
     def full_reconciliation_due(self, today: date) -> bool:
         """Return whether no successful full reconciliation exists for today."""
-        with self._connection() as connection:
+        with self._database.connection() as connection:
             row = connection.execute(
                 "SELECT value FROM sync_state WHERE key = 'last_full_reconcile_date'"
             ).fetchone()
@@ -256,7 +467,7 @@ class ActivityRepository:
             raise ValueError("start_date must not follow end_date")
         if limit < 1:
             raise ValueError("limit must be positive")
-        with self._connection() as connection:
+        with self._database.connection() as connection:
             rows = connection.execute(
                 """
                 SELECT
@@ -306,7 +517,7 @@ class ActivityRepository:
             raise ValueError("limit must be positive")
         if type_key is not None and (not type_key or len(type_key) > 100):
             raise ValueError("type_key is invalid")
-        with self._read_connection() as connection:
+        with self._database.read_connection() as connection:
             if connection is None:
                 return []
             rows = connection.execute(
@@ -350,7 +561,7 @@ class ActivityRepository:
 
     def activity_by_id(self, activity_id: str) -> Activity | None:
         """Return one normalized activity by its validated decimal identifier."""
-        with self._read_connection() as connection:
+        with self._database.read_connection() as connection:
             if connection is None:
                 return None
             row = connection.execute(
@@ -395,7 +606,7 @@ class ActivityRepository:
     ) -> ReconcileResult:
         """Upsert and reconcile one fetched period in a single transaction."""
         synced_at = completed_at.isoformat(timespec="seconds")
-        with self._connection() as connection:
+        with self._database.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 connection.execute(
