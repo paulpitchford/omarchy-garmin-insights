@@ -53,9 +53,9 @@ class UserSummaryDay:
     """Current-date Steps, goal, and resting heart rate from user summary."""
 
     calendar_date: date
-    steps: float | None
-    step_goal: float | None
-    resting_heart_rate_bpm: float | None
+    steps: int | None
+    step_goal: int | None
+    resting_heart_rate_bpm: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +63,7 @@ class StepsDay:
     """One daily Steps range value."""
 
     calendar_date: date
-    steps: float | None
+    steps: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,8 +71,8 @@ class BodyBatteryDay:
     """One Body Battery day after ephemeral samples have been reduced."""
 
     calendar_date: date
-    charged: float | None
-    drained: float | None
+    charged: int | None
+    drained: int | None
     lowest: int | None
     highest: int | None
     latest: int | None
@@ -83,7 +83,7 @@ class SleepRangeDay:
     """One daily score from the bounded Sleep range response."""
 
     calendar_date: date
-    score: float | None
+    score: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,12 +91,12 @@ class SleepDay:
     """Reviewed detailed Sleep scalars for one Garmin calendar date."""
 
     calendar_date: date
-    score: float | None
-    total_seconds: float | None
-    deep_seconds: float | None
-    light_seconds: float | None
-    rem_seconds: float | None
-    awake_seconds: float | None
+    score: int | None
+    total_seconds: int | None
+    deep_seconds: int | None
+    light_seconds: int | None
+    rem_seconds: int | None
+    awake_seconds: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +116,7 @@ class RestingHeartRateDay:
     """One resting-heart-rate range value."""
 
     calendar_date: date
-    beats_per_minute: float | None
+    beats_per_minute: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,5 +124,5 @@ class TrainingReadinessDay:
     """Canonical Garmin morning Training Readiness values for one date."""
 
     calendar_date: date
-    score: float | None
+    score: int | None
     level: str | None

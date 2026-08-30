@@ -26,13 +26,13 @@ MAX_BODY_BATTERY_DATES = 7
 MAX_BODY_BATTERY_SAMPLES = 2_000
 MAX_TRAINING_READINESS_SNAPSHOTS = 64
 
-_MAX_STEPS = 1_000_000.0
-_MAX_BODY_BATTERY_TOTAL = 1_000.0
-_MAX_SCORE = 100.0
-_MAX_SLEEP_SECONDS = 86_400.0
+_MAX_STEPS = 1_000_000
+_MAX_BODY_BATTERY_TOTAL = 1_000
+_MAX_SCORE = 100
+_MAX_SLEEP_SECONDS = 86_400
 _MAX_HRV_MS = 1_000.0
-_MIN_RESTING_HEART_RATE = 20.0
-_MAX_RESTING_HEART_RATE = 300.0
+_MIN_RESTING_HEART_RATE = 20
+_MAX_RESTING_HEART_RATE = 300
 _MAX_REMOTE_TEXT = 64
 _AFTER_WAKEUP_CONTEXT = "AFTER_WAKEUP_RESET"
 _MAX_TIMESTAMP_LENGTH = 40
@@ -66,6 +66,22 @@ def _optional_number(
     if not math.isfinite(normalized) or normalized < minimum or normalized > maximum:
         raise _invalid(source)
     return normalized
+
+
+def _optional_integer(
+    value: object,
+    source: WellnessSource,
+    *,
+    minimum: int,
+    maximum: int,
+) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise _invalid(source)
+    if value < minimum or value > maximum:
+        raise _invalid(source)
+    return value
 
 
 def _optional_text(value: object, source: WellnessSource) -> str | None:
@@ -125,9 +141,9 @@ def parse_user_summary(payload: object, requested_date: date) -> UserSummaryDay 
     if payload is None:
         return None
     row = _mapping(payload, source)
-    steps = _optional_number(row.get("totalSteps"), source, minimum=0, maximum=_MAX_STEPS)
-    goal = _optional_number(row.get("dailyStepGoal"), source, minimum=0, maximum=_MAX_STEPS)
-    resting = _optional_number(
+    steps = _optional_integer(row.get("totalSteps"), source, minimum=0, maximum=_MAX_STEPS)
+    goal = _optional_integer(row.get("dailyStepGoal"), source, minimum=0, maximum=_MAX_STEPS)
+    resting = _optional_integer(
         row.get("restingHeartRate"),
         source,
         minimum=_MIN_RESTING_HEART_RATE,
@@ -154,7 +170,7 @@ def parse_daily_steps(
     seen: set[date] = set()
     for raw_row in rows:
         row = _mapping(raw_row, source)
-        steps = _optional_number(row.get("totalSteps"), source, minimum=0, maximum=_MAX_STEPS)
+        steps = _optional_integer(row.get("totalSteps"), source, minimum=0, maximum=_MAX_STEPS)
         calendar_date = _calendar_date(row.get("calendarDate"), source, start_date, end_date)
         if calendar_date is None:
             continue
@@ -225,10 +241,10 @@ def parse_body_battery(
     seen: set[date] = set()
     for raw_row in rows:
         row = _mapping(raw_row, source)
-        charged = _optional_number(
+        charged = _optional_integer(
             row.get("charged"), source, minimum=0, maximum=_MAX_BODY_BATTERY_TOTAL
         )
-        drained = _optional_number(
+        drained = _optional_integer(
             row.get("drained"), source, minimum=0, maximum=_MAX_BODY_BATTERY_TOTAL
         )
         calendar_date = _calendar_date(row.get("date"), source, start_date, end_date)
@@ -266,7 +282,7 @@ def parse_sleep_range(
     seen: set[date] = set()
     for raw_row in rows:
         row = _mapping(raw_row, source)
-        score = _optional_number(
+        score = _optional_integer(
             row.get("overallSleepScore"), source, minimum=0, maximum=_MAX_SCORE
         )
         calendar_date = _calendar_date(row.get("calendarDate"), source, start_date, end_date)
@@ -277,7 +293,7 @@ def parse_sleep_range(
     return tuple(result)
 
 
-def _sleep_score(row: Mapping[object, object], source: WellnessSource) -> float | None:
+def _sleep_score(row: Mapping[object, object], source: WellnessSource) -> int | None:
     raw_scores = row.get("sleepScores")
     if raw_scores is None:
         return None
@@ -286,7 +302,7 @@ def _sleep_score(row: Mapping[object, object], source: WellnessSource) -> float 
     if raw_overall is None:
         return None
     overall = _mapping(raw_overall, source)
-    return _optional_number(overall.get("value"), source, minimum=0, maximum=_MAX_SCORE)
+    return _optional_integer(overall.get("value"), source, minimum=0, maximum=_MAX_SCORE)
 
 
 def parse_sleep_detail(payload: object, requested_date: date) -> SleepDay | None:
@@ -300,19 +316,19 @@ def parse_sleep_detail(payload: object, requested_date: date) -> SleepDay | None
         return None
     row = _mapping(raw_row, source)
     score = _sleep_score(row, source)
-    total = _optional_number(
+    total = _optional_integer(
         row.get("sleepTimeSeconds"), source, minimum=0, maximum=_MAX_SLEEP_SECONDS
     )
-    deep = _optional_number(
+    deep = _optional_integer(
         row.get("deepSleepSeconds"), source, minimum=0, maximum=_MAX_SLEEP_SECONDS
     )
-    light = _optional_number(
+    light = _optional_integer(
         row.get("lightSleepSeconds"), source, minimum=0, maximum=_MAX_SLEEP_SECONDS
     )
-    rem = _optional_number(
+    rem = _optional_integer(
         row.get("remSleepSeconds"), source, minimum=0, maximum=_MAX_SLEEP_SECONDS
     )
-    awake = _optional_number(
+    awake = _optional_integer(
         row.get("awakeSleepSeconds"), source, minimum=0, maximum=_MAX_SLEEP_SECONDS
     )
     if sum(value for value in (deep, light, rem, awake) if value is not None) > _MAX_SLEEP_SECONDS:
@@ -409,7 +425,7 @@ def parse_resting_heart_rate(
     seen: set[date] = set()
     for raw_row in rows:
         row = _mapping(raw_row, source)
-        beats_per_minute = _optional_number(
+        beats_per_minute = _optional_integer(
             row.get("value"),
             source,
             minimum=_MIN_RESTING_HEART_RATE,
@@ -445,8 +461,8 @@ def _local_timestamp(
 
 
 def _select_readiness(
-    candidates: list[tuple[datetime | None, str | None, float | None, str | None]],
-) -> tuple[float | None, str | None] | None:
+    candidates: list[tuple[datetime | None, str | None, int | None, str | None]],
+) -> tuple[int | None, str | None] | None:
     preferred = [candidate for candidate in candidates if candidate[1] == _AFTER_WAKEUP_CONTEXT]
     if preferred:
         selectable = preferred
@@ -474,10 +490,10 @@ def parse_training_readiness(
     if payload is None:
         return None
     rows = _bounded_list(payload, source, MAX_TRAINING_READINESS_SNAPSHOTS)
-    candidates: list[tuple[datetime | None, str | None, float | None, str | None]] = []
+    candidates: list[tuple[datetime | None, str | None, int | None, str | None]] = []
     for raw_row in rows:
         row = _mapping(raw_row, source)
-        score = _optional_number(row.get("score"), source, minimum=0, maximum=_MAX_SCORE)
+        score = _optional_integer(row.get("score"), source, minimum=0, maximum=_MAX_SCORE)
         level = _optional_text(row.get("level"), source)
         context = _optional_text(row.get("inputContext"), source)
         timestamp = _local_timestamp(row.get("timestampLocal"), source, requested_date)

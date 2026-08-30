@@ -110,6 +110,13 @@ def test_user_summary_missing_payload_or_date_is_missing_and_valid_zero_is_prese
         pytest.param({"calendarDate": "2026-W35-2"}, id="week-date"),
         pytest.param({"calendarDate": "2026-08-24"}, id="wrong-date"),
         pytest.param({"calendarDate": DAY.isoformat(), "totalSteps": True}, id="boolean-number"),
+        pytest.param({"calendarDate": DAY.isoformat(), "totalSteps": 1.5}, id="fractional-steps"),
+        pytest.param(
+            {"calendarDate": DAY.isoformat(), "dailyStepGoal": 9_999.5}, id="fractional-goal"
+        ),
+        pytest.param(
+            {"calendarDate": DAY.isoformat(), "restingHeartRate": 52.5}, id="fractional-rhr"
+        ),
         pytest.param({"calendarDate": DAY.isoformat(), "totalSteps": math.inf}, id="non-finite"),
         pytest.param({"calendarDate": DAY.isoformat(), "totalSteps": 10**400}, id="excessive-int"),
         pytest.param({"calendarDate": DAY.isoformat(), "dailyStepGoal": 1_000_001}, id="goal-high"),
@@ -150,6 +157,7 @@ def test_daily_steps_empty_response_or_missing_date_is_missing() -> None:
         pytest.param([{"calendarDate": "invalid"}], id="invalid-date"),
         pytest.param([{"calendarDate": "2026-08-19"}], id="outside-period"),
         pytest.param([{"calendarDate": DAY.isoformat(), "totalSteps": -1}], id="negative"),
+        pytest.param([{"calendarDate": DAY.isoformat(), "totalSteps": 1.5}], id="fractional"),
         pytest.param(
             [
                 {"calendarDate": DAY.isoformat(), "totalSteps": 1},
@@ -281,6 +289,7 @@ def test_body_battery_samples_must_be_monotonically_ordered() -> None:
         pytest.param({}, id="not-list"),
         pytest.param([None], id="row-not-object"),
         pytest.param([{"date": DAY.isoformat(), "charged": True}], id="boolean-total"),
+        pytest.param([{"date": DAY.isoformat(), "charged": 1.5}], id="fractional-total"),
         pytest.param([{"date": DAY.isoformat(), "drained": 1_001}], id="total-high"),
         pytest.param([{"date": "2026-08-24"}], id="wrong-date"),
         pytest.param([{"date": DAY.isoformat()}, {"date": DAY.isoformat()}], id="duplicate-date"),
@@ -331,6 +340,10 @@ def test_sleep_range_admits_only_dated_score_rows() -> None:
     [
         pytest.param({}, id="not-list"),
         pytest.param([{"calendarDate": DAY.isoformat(), "overallSleepScore": math.nan}], id="nan"),
+        pytest.param(
+            [{"calendarDate": DAY.isoformat(), "overallSleepScore": 80.5}],
+            id="fractional-score",
+        ),
         pytest.param([{"calendarDate": DAY.isoformat(), "overallSleepScore": 101}], id="high"),
         pytest.param(
             [{"calendarDate": DAY.isoformat()}, {"calendarDate": DAY.isoformat()}],
@@ -422,6 +435,19 @@ def test_sparse_sleep_detail_preserves_missing_values(sleep_scores: object) -> N
             id="boolean-score",
         ),
         pytest.param(
+            {
+                "dailySleepDTO": {
+                    "calendarDate": DAY.isoformat(),
+                    "sleepScores": {"overall": {"value": 80.5}},
+                }
+            },
+            id="fractional-score",
+        ),
+        pytest.param(
+            {"dailySleepDTO": {"calendarDate": DAY.isoformat(), "sleepTimeSeconds": 1.5}},
+            id="fractional-duration",
+        ),
+        pytest.param(
             {"dailySleepDTO": {"calendarDate": DAY.isoformat(), "sleepTimeSeconds": 86_401}},
             id="duration-high",
         ),
@@ -508,6 +534,7 @@ def test_empty_hrv_responses_are_missing() -> None:
     [
         pytest.param([], id="summary-not-object"),
         pytest.param(_hrv_summary(weeklyAvg=True), id="boolean-average"),
+        pytest.param(_hrv_summary(weeklyAvg=10**400), id="excessive-average"),
         pytest.param(_hrv_summary(lastNightAvg=1_001), id="average-high"),
         pytest.param(_hrv_summary(status="UNSAFE\nSTATUS"), id="ascii-control-status"),
         pytest.param(_hrv_summary(status="UNSAFE\u0085STATUS"), id="unicode-control-status"),
@@ -561,6 +588,7 @@ def test_empty_resting_heart_rate_range_is_missing() -> None:
         pytest.param({}, id="not-list"),
         pytest.param([[]], id="row-not-object"),
         pytest.param([{"calendarDate": DAY.isoformat(), "value": True}], id="boolean"),
+        pytest.param([{"calendarDate": DAY.isoformat(), "value": 52.5}], id="fractional"),
         pytest.param([{"calendarDate": DAY.isoformat(), "value": 0}], id="below-range"),
         pytest.param([{"calendarDate": DAY.isoformat(), "value": 301}], id="above-range"),
         pytest.param(
@@ -662,6 +690,7 @@ def test_ambiguous_or_missing_training_readiness_returns_missing(payload: object
         pytest.param([], id="row-not-object"),
         pytest.param(_readiness(calendarDate="2026-08-24"), id="wrong-date"),
         pytest.param(_readiness(score=True), id="boolean-score"),
+        pytest.param(_readiness(score=74.5), id="fractional-score"),
         pytest.param(_readiness(score=101), id="score-high"),
         pytest.param(_readiness(level="unsafe\nlevel"), id="unsafe-level"),
         pytest.param(_readiness(level="x" * 65), id="long-level"),
