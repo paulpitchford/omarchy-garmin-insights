@@ -209,6 +209,74 @@ TestCase {
     compare(result.wellness.partialCurrentDaySources, ["steps", "bodyBattery"])
   }
 
+  function test_synthetic_wellness_complete_state_satisfies_the_contract() {
+    var raw = Model.syntheticWellness(Date.parse("2026-08-30T12:00:00Z"), "complete")
+    var result = Model.parseWellness(JSON.stringify(raw))
+
+    verify(result.ok)
+    compare(result.wellness.days[29].steps.value, 6420)
+    compare(result.wellness.days[29].bodyBattery.latest, 64)
+    compare(result.wellness.days[29].trainingReadiness.level, "Synthetic high")
+    compare(result.wellness.periods[0].contributingDays.hrv.lastNightAverageMs, 1)
+  }
+
+  function test_synthetic_wellness_sparse_state_preserves_valid_zero() {
+    var raw = Model.syntheticWellness(Date.parse("2026-08-30T12:00:00Z"), "sparse")
+    var result = Model.parseWellness(JSON.stringify(raw))
+
+    verify(result.ok)
+    compare(result.wellness.days[29].steps.value, 0)
+    compare(result.wellness.days[29].bodyBattery, null)
+    compare(result.wellness.days[29].sleep.score, 84)
+    compare(result.wellness.days[29].sleep.totalSeconds, null)
+  }
+
+  function test_synthetic_wellness_unsupported_state_has_no_fabricated_values() {
+    var raw = Model.syntheticWellness(Date.parse("2026-08-30T12:00:00Z"), "unsupported")
+    var result = Model.parseWellness(JSON.stringify(raw))
+
+    verify(result.ok)
+    compare(Model.latestWellnessDay(result.wellness, "bodyBattery"), null)
+    compare(result.wellness.sources[2].failure, "unsupported")
+    compare(Model.wellnessUnavailableReason(result.wellness, "bodyBattery"),
+      "Not supported by this Garmin account or device")
+  }
+
+  function test_synthetic_wellness_stale_state_keeps_dated_value_and_failure() {
+    var raw = Model.syntheticWellness(Date.parse("2026-08-30T12:00:00Z"), "stale")
+    var result = Model.parseWellness(JSON.stringify(raw))
+    var sleepDay = Model.latestWellnessDay(result.wellness, "sleep")
+    var sleepSource = Model.wellnessSourceForCategory(result.wellness, "sleep", sleepDay.date)
+
+    verify(result.ok)
+    compare(sleepDay.date, "2026-08-29")
+    compare(sleepDay.sleep.score, 84)
+    compare(sleepSource.failure, "remote_service")
+    compare(Model.wellnessFailureText(sleepSource.failure), "Garmin service failed")
+  }
+
+  function test_synthetic_wellness_partial_state_separates_current_and_older_values() {
+    var raw = Model.syntheticWellness(Date.parse("2026-08-30T12:00:00Z"), "partial")
+    var result = Model.parseWellness(JSON.stringify(raw))
+
+    verify(result.ok)
+    compare(Model.latestWellnessDay(result.wellness, "steps").date, "2026-08-30")
+    compare(Model.latestWellnessDay(result.wellness, "bodyBattery").date, "2026-08-30")
+    compare(Model.latestWellnessDay(result.wellness, "sleep").date, "2026-08-29")
+    compare(Model.latestWellnessDay(result.wellness, "trainingReadiness").date, "2026-08-29")
+  }
+
+  function test_wellness_category_source_prefers_the_fresh_matching_source() {
+    var raw = Model.syntheticWellness(Date.parse("2026-08-30T12:00:00Z"), "complete")
+    var wellness = Model.parseWellness(JSON.stringify(raw)).wellness
+
+    compare(Model.wellnessSourceForCategory(wellness, "steps", "2026-08-30").source,
+      "user_summary")
+    compare(Model.wellnessSourceForCategory(
+      wellness, "restingHeartRate", "2026-08-30").source, "user_summary")
+    compare(Model.wellnessSourceForCategory(wellness, "hrv", "2026-08-30").source, "hrv")
+  }
+
   function test_wellness_parser_accepts_zero_and_checks_contributor_counts() {
     var wellness = syntheticWellness()
     wellness.days[29].steps = { value: 0, goal: 8000 }
