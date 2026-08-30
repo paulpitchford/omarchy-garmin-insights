@@ -453,6 +453,14 @@ omarchy plugin validate "$PLUGIN_DIR"
 /usr/lib/qt6/bin/qmllint -I "$OMARCHY_PATH/shell" \
   "$PLUGIN_DIR/BarWidget.qml" \
   "$PLUGIN_DIR/Panel.qml" \
+  "$PLUGIN_DIR/PanelShell.qml" \
+  "$PLUGIN_DIR/PanelSession.qml" \
+  "$PLUGIN_DIR/OverviewShellPage.qml" \
+  "$PLUGIN_DIR/WellnessShellPage.qml" \
+  "$PLUGIN_DIR/WellnessTrendChart.qml" \
+  "$PLUGIN_DIR/ActivitiesView.qml" \
+  "$PLUGIN_DIR/SettingsView.qml" \
+  "$PLUGIN_DIR/DomainStatusRow.qml" \
   "$PLUGIN_DIR/ActivityTimeChart.qml" \
   "$PLUGIN_DIR/Service.qml"
 ```

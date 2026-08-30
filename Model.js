@@ -606,6 +606,54 @@ function wellnessUnavailableReason(wellness, categoryKey) {
   return "No value is recorded in the retained 30 days"
 }
 
+function wellnessPeriodByDays(wellness, periodDays) {
+  if (!wellness || !Array.isArray(wellness.periods)) return null
+  var key = Number(periodDays) === 30 ? "30Days" : "7Days"
+  for (var index = 0; index < wellness.periods.length; index++)
+    if (wellness.periods[index].key === key) return wellness.periods[index]
+  return null
+}
+
+function wellnessTrendDays(wellness, periodDays) {
+  if (!wellness || !Array.isArray(wellness.days)) return []
+  var count = Number(periodDays) === 30 ? 30 : 7
+  return wellness.days.slice(Math.max(0, wellness.days.length - count))
+}
+
+function wellnessTrendContributorCount(wellness, periodDays, familyKey, sleepMetric) {
+  var period = wellnessPeriodByDays(wellness, periodDays)
+  if (!period || !period.contributingDays) return 0
+  if (familyKey === "trainingReadiness") return period.contributingDays.trainingReadiness.score
+  if (familyKey === "bodyBattery") return period.contributingDays.bodyBattery.latest
+  if (familyKey === "steps") return period.contributingDays.steps.value
+  if (familyKey === "hrv") return period.contributingDays.hrv.lastNightAverageMs
+  if (familyKey === "restingHeartRate")
+    return period.contributingDays.restingHeartRate.beatsPerMinute
+  if (familyKey !== "sleep") return 0
+  if (sleepMetric === "duration") return period.contributingDays.sleep.totalSeconds
+  if (sleepMetric === "stages") return null
+  return period.contributingDays.sleep.score
+}
+
+function wellnessTrendStageContributorCounts(wellness, periodDays) {
+  var period = wellnessPeriodByDays(wellness, periodDays)
+  if (!period || !period.contributingDays) return null
+  var sleep = period.contributingDays.sleep
+  return {
+    deep: sleep.deepSeconds,
+    light: sleep.lightSeconds,
+    rem: sleep.remSeconds,
+    awake: sleep.awakeSeconds
+  }
+}
+
+function wellnessTrendIsPartial(wellness, familyKey) {
+  if (!wellness || !Array.isArray(wellness.partialCurrentDaySources)) return false
+  var source = familyKey === "steps" ? "steps"
+    : familyKey === "bodyBattery" ? "bodyBattery" : ""
+  return source !== "" && wellness.partialCurrentDaySources.indexOf(source) !== -1
+}
+
 function wellnessCacheReadError(hasWellness, currentError, resultError) {
   if (resultError === "cache_missing")
     return hasWellness ? String(currentError || "") : "missing"
@@ -1078,29 +1126,86 @@ function syntheticWellness(nowMs, requestedVariant) {
       sleep: null, trainingReadiness: null, hrv: null, restingHeartRate: null
     })
   }
-  var valueIndex = variant === "stale" || variant === "partial" ? 28 : 29
-  var valueDay = days[valueIndex]
-  if (variant === "complete" || variant === "stale" || variant === "partial") {
-    valueDay.sleep = {
+
+  function populateDay(index) {
+    var day = days[index]
+    var deep = 3900 + index % 4 * 300
+    var light = 13800 + index % 5 * 420
+    var rem = 4800 + index % 3 * 480
+    var awake = 900 + index % 4 * 180
+    var low = 18 + index % 11
+    var high = 68 + index % 17
+    day.steps = { value: 3200 + index * 173, goal: index % 9 === 0 ? null : 8000 }
+    day.bodyBattery = {
+      charged: 30 + index % 20, drained: 24 + index % 18,
+      lowest: low, highest: high, latest: Math.max(low, high - index % 24)
+    }
+    day.sleep = {
+      score: 67 + index % 23, totalSeconds: deep + light + rem + awake,
+      deepSeconds: deep, lightSeconds: light, remSeconds: rem, awakeSeconds: awake
+    }
+    day.trainingReadiness = {
+      score: 52 + index % 37, level: index % 2 === 0 ? "Synthetic ready" : "Synthetic moderate"
+    }
+    day.hrv = {
+      weeklyAverageMs: 45 + index % 7 * 0.5,
+      lastNightAverageMs: 42 + index % 13,
+      status: "Synthetic balanced", balancedLowMs: 39, balancedUpperMs: 59
+    }
+    day.restingHeartRate = { beatsPerMinute: 51 + index % 8 }
+  }
+
+  if (variant === "complete") {
+    for (var completeIndex = 0; completeIndex < days.length; completeIndex++)
+      populateDay(completeIndex)
+  } else if (variant === "stale" || variant === "partial") {
+    for (var retainedIndex = 0; retainedIndex < days.length - 1; retainedIndex++)
+      populateDay(retainedIndex)
+  } else if (variant === "sparse") {
+    populateDay(23)
+    populateDay(27)
+    days[23].steps.goal = null
+    days[27].steps.goal = null
+    days[23].hrv.balancedLowMs = null
+    days[23].hrv.balancedUpperMs = null
+    days[27].hrv.balancedLowMs = null
+    days[27].hrv.balancedUpperMs = null
+    days[29].steps = { value: 0, goal: null }
+    days[29].sleep = {
+      score: 84, totalSeconds: null, deepSeconds: null, lightSeconds: null,
+      remSeconds: null, awakeSeconds: null
+    }
+  }
+
+  if (variant === "stale" || variant === "partial") {
+    days[28].sleep = {
       score: 84, totalSeconds: 27000, deepSeconds: 4500, lightSeconds: 15000,
       remSeconds: 6000, awakeSeconds: 1500
     }
-    valueDay.trainingReadiness = { score: 71, level: "Synthetic high" }
-    valueDay.hrv = {
+    days[28].trainingReadiness = { score: 71, level: "Synthetic high" }
+    days[28].hrv = {
       weeklyAverageMs: 48.5, lastNightAverageMs: 52, status: "Synthetic balanced",
       balancedLowMs: 40, balancedUpperMs: 60
     }
-    valueDay.restingHeartRate = { beatsPerMinute: 54 }
+    days[28].restingHeartRate = { beatsPerMinute: 54 }
   }
-  if (variant !== "unsupported") {
-    days[29].steps = { value: variant === "sparse" ? 0 : 6420, goal: 8000 }
-    days[29].bodyBattery = variant === "sparse" ? null : {
+  if (variant !== "unsupported" && variant !== "sparse") {
+    days[29].steps = { value: 6420, goal: 8000 }
+    days[29].bodyBattery = {
       charged: 42, drained: 31, lowest: 28, highest: 76, latest: 64
     }
   }
-  if (variant === "sparse") days[29].sleep = {
-    score: 84, totalSeconds: null, deepSeconds: null, lightSeconds: null,
-    remSeconds: null, awakeSeconds: null
+  if (variant === "complete") {
+    days[29].sleep = {
+      score: 84, totalSeconds: 27000, deepSeconds: 4500, lightSeconds: 15000,
+      remSeconds: 6000, awakeSeconds: 1500
+    }
+    days[29].trainingReadiness = { score: 71, level: "Synthetic high" }
+    days[29].hrv = {
+      weeklyAverageMs: 48.5, lastNightAverageMs: 52, status: "Synthetic balanced",
+      balancedLowMs: 40, balancedUpperMs: 60
+    }
+    days[29].restingHeartRate = { beatsPerMinute: 54 }
   }
 
   var failures = {}

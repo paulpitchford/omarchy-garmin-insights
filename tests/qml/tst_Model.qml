@@ -217,7 +217,7 @@ TestCase {
     compare(result.wellness.days[29].steps.value, 6420)
     compare(result.wellness.days[29].bodyBattery.latest, 64)
     compare(result.wellness.days[29].trainingReadiness.level, "Synthetic high")
-    compare(result.wellness.periods[0].contributingDays.hrv.lastNightAverageMs, 1)
+    compare(result.wellness.periods[0].contributingDays.hrv.lastNightAverageMs, 7)
   }
 
   function test_synthetic_wellness_sparse_state_preserves_valid_zero() {
@@ -264,6 +264,72 @@ TestCase {
     compare(Model.latestWellnessDay(result.wellness, "bodyBattery").date, "2026-08-30")
     compare(Model.latestWellnessDay(result.wellness, "sleep").date, "2026-08-29")
     compare(Model.latestWellnessDay(result.wellness, "trainingReadiness").date, "2026-08-29")
+  }
+
+  function test_wellness_trend_helpers_select_exact_ranges_and_contributors() {
+    var raw = Model.syntheticWellness(Date.parse("2026-08-30T12:00:00Z"), "complete")
+    var wellness = Model.parseWellness(JSON.stringify(raw)).wellness
+
+    compare(Model.wellnessTrendDays(wellness, 7).length, 7)
+    compare(Model.wellnessTrendDays(wellness, 7)[0].date, "2026-08-24")
+    compare(Model.wellnessTrendDays(wellness, 30).length, 30)
+    compare(Model.wellnessPeriodByDays(wellness, 30).startDate, "2026-08-01")
+    compare(Model.wellnessTrendContributorCount(
+      wellness, 7, "trainingReadiness", "score"), 7)
+    var stageCounts = Model.wellnessTrendStageContributorCounts(wellness, 30)
+    compare(stageCounts.deep, 30)
+    compare(stageCounts.light, 30)
+    compare(stageCounts.rem, 30)
+    compare(stageCounts.awake, 30)
+  }
+
+  function test_sleep_stage_contributors_preserve_each_scalar_count() {
+    var raw = Model.syntheticWellness(Date.parse("2026-08-30T12:00:00Z"), "sparse")
+    raw.days[29].sleep.lightSeconds = 3600
+    raw.periods[0].contributingDays.sleep.lightSeconds++
+    raw.periods[1].contributingDays.sleep.lightSeconds++
+    var wellness = Model.parseWellness(JSON.stringify(raw)).wellness
+
+    var counts = Model.wellnessTrendStageContributorCounts(wellness, 7)
+
+    compare(counts.deep, 2)
+    compare(counts.light, 3)
+    compare(counts.rem, 2)
+    compare(counts.awake, 2)
+    compare(Model.wellnessTrendContributorCount(wellness, 7, "sleep", "stages"), null)
+  }
+
+  function test_sparse_wellness_trends_keep_gaps_distinct_from_valid_zero() {
+    var raw = Model.syntheticWellness(Date.parse("2026-08-30T12:00:00Z"), "sparse")
+    var wellness = Model.parseWellness(JSON.stringify(raw)).wellness
+    var days = Model.wellnessTrendDays(wellness, 7)
+
+    compare(days[1].steps, null)
+    compare(days[6].steps.value, 0)
+    compare(Model.wellnessTrendContributorCount(wellness, 7, "steps", "score"), 3)
+    compare(Model.wellnessTrendContributorCount(wellness, 7, "bodyBattery", "score"), 2)
+    compare(wellness.periods[0].contributingDays.steps.goal, 0)
+    compare(wellness.periods[0].contributingDays.hrv.balancedLowMs, 0)
+    compare(wellness.periods[0].contributingDays.hrv.balancedUpperMs, 0)
+  }
+
+  function test_all_missing_wellness_trends_have_zero_contributors() {
+    var raw = Model.syntheticWellness(Date.parse("2026-08-30T12:00:00Z"), "unsupported")
+    var wellness = Model.parseWellness(JSON.stringify(raw)).wellness
+
+    compare(Model.wellnessTrendContributorCount(wellness, 7, "hrv", "score"), 0)
+    compare(Model.wellnessTrendContributorCount(
+      wellness, 30, "restingHeartRate", "score"), 0)
+  }
+
+  function test_current_day_partial_state_applies_only_to_approved_families() {
+    var raw = Model.syntheticWellness(Date.parse("2026-08-30T12:00:00Z"), "partial")
+    var wellness = Model.parseWellness(JSON.stringify(raw)).wellness
+
+    verify(Model.wellnessTrendIsPartial(wellness, "steps"))
+    verify(Model.wellnessTrendIsPartial(wellness, "bodyBattery"))
+    verify(!Model.wellnessTrendIsPartial(wellness, "sleep"))
+    verify(!Model.wellnessTrendIsPartial(wellness, "hrv"))
   }
 
   function test_wellness_category_source_prefers_the_fresh_matching_source() {

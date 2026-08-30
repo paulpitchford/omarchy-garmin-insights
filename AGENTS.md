@@ -192,6 +192,7 @@ qmllint -I "$OMARCHY_PATH/shell" \
   "$PLUGIN_DIR/PanelSession.qml" \
   "$PLUGIN_DIR/OverviewShellPage.qml" \
   "$PLUGIN_DIR/WellnessShellPage.qml" \
+  "$PLUGIN_DIR/WellnessTrendChart.qml" \
   "$PLUGIN_DIR/ActivitiesView.qml" \
   "$PLUGIN_DIR/SettingsView.qml" \
   "$PLUGIN_DIR/DomainStatusRow.qml" \
