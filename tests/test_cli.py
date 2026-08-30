@@ -192,6 +192,28 @@ def test_cache_read_json_has_stable_bounded_contract() -> None:
     }
 
 
+def test_cache_read_accepts_explicit_wellness_kind() -> None:
+    operations = _FakeDisplayCacheOperations(content='{"schemaVersion":1,"days":[]}\n')
+    stdout = StringIO()
+
+    exit_status = run(
+        ["cache", "read", "--json", "--kind", "wellness"],
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={},
+        home=Path("/home/example"),
+        display_cache_operations=operations,
+    )
+
+    payload: dict[str, Any] = json.loads(stdout.getvalue())
+    assert exit_status == ExitStatus.SUCCESS
+    assert operations.calls == [DisplayCacheKind.WELLNESS]
+    assert payload["data"] == {
+        "kind": "wellness",
+        "content": '{"schemaVersion":1,"days":[]}\n',
+    }
+
+
 def test_cache_read_missing_file_uses_distinct_redacted_error() -> None:
     operations = _FakeDisplayCacheOperations(
         failure=DisplayCacheMissingError("fabricated missing path")

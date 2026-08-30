@@ -10,6 +10,7 @@ from omarchy_garmin.paths import (
     SUMMARY_FILE_NAME,
     SYNC_LOCK_FILE_NAME,
     TOKEN_FILE_NAME,
+    WELLNESS_FILE_NAME,
     AppPaths,
 )
 
@@ -32,6 +33,7 @@ def test_application_file_paths_use_dedicated_xdg_scopes() -> None:
     assert paths.activity_database == paths.data / ACTIVITY_DATABASE_FILE_NAME
     assert paths.summary_file == paths.cache / SUMMARY_FILE_NAME
     assert paths.activity_trends_file == paths.cache / ACTIVITY_TRENDS_FILE_NAME
+    assert paths.wellness_file == paths.cache / WELLNESS_FILE_NAME
     assert paths.sync_lock_file is None
 
 

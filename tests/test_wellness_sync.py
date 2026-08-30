@@ -18,6 +18,7 @@ from omarchy_garmin.wellness import (
     WellnessSource,
 )
 from omarchy_garmin.wellness_database import WellnessCadenceState, WellnessRepository
+from omarchy_garmin.wellness_presentation import WellnessPresentationCache
 from omarchy_garmin.wellness_sync import (
     MAX_WELLNESS_DATA_CALLS,
     WellnessAccountScopeError,
@@ -229,7 +230,13 @@ class _FakeGateway:
 
 
 class _Configured:
-    def __init__(self, tmp_path: Path, gateway: _FakeGateway | None = None) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        gateway: _FakeGateway | None = None,
+        *,
+        presentation: bool = False,
+    ) -> None:
         self.paths = _paths(tmp_path)
         self.store = AuthStore(self.paths)
         self.store.persist(_session(marker="stored"))
@@ -239,6 +246,9 @@ class _Configured:
             paths=self.paths,
             auth_store=self.store,
             gateway=self.gateway,
+            presentation=(
+                WellnessPresentationCache(self.paths.wellness_file) if presentation else None
+            ),
             today=self.clock.local_date,
             now=self.clock.instant,
         )
@@ -262,6 +272,45 @@ def _body_timestamp(day: date) -> int:
 
 def _source(result: Any, source: WellnessSource) -> Any:
     return next(item for item in result.sources if item.source is source)
+
+
+def test_optional_presentation_cache_is_generated_after_source_commits(tmp_path: Path) -> None:
+    configured = _Configured(tmp_path, presentation=True)
+
+    result = configured.service.refresh()
+
+    payload: dict[str, Any] = json.loads(configured.paths.wellness_file.read_bytes())
+    assert result.cache_updated is True
+    assert payload["asOfLocalDate"] == TODAY.isoformat()
+    assert payload["days"][-1]["steps"] == {"goal": 10_000, "value": 9_999}
+    assert payload["sources"][0]["refreshedAt"] == "2026-08-26T12:30:00Z"
+
+
+def test_optional_presentation_failure_preserves_cache_and_source_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configured = _Configured(tmp_path, presentation=True)
+    first = configured.service.refresh()
+    original = configured.paths.wellness_file.read_bytes()
+    configured.paths.summary_file.write_bytes(b"fabricated valid activity summary")
+    configured.clock.now += timedelta(minutes=31)
+
+    def fail_write(destination: Path, content: bytes) -> None:
+        raise OSError("fabricated interrupted presentation write")
+
+    monkeypatch.setattr(
+        "omarchy_garmin.wellness_presentation.atomic_write_private",
+        fail_write,
+    )
+
+    result = configured.service.refresh()
+
+    assert first.cache_updated is True
+    assert result.cache_updated is False
+    assert _source(result, WellnessSource.USER_SUMMARY).refreshed is True
+    assert configured.paths.wellness_file.read_bytes() == original
+    assert configured.paths.summary_file.read_bytes() == b"fabricated valid activity summary"
 
 
 def test_initial_refresh_uses_exact_bounded_full_plan_and_precedence(tmp_path: Path) -> None:
@@ -300,13 +349,18 @@ def test_initial_refresh_uses_exact_bounded_full_plan_and_precedence(tmp_path: P
     assert configured.paths.token_file.read_bytes() == _token("refreshed")
 
 
-def test_immediate_repeat_is_idempotent_and_makes_no_verification_request(tmp_path: Path) -> None:
-    configured = _Configured(tmp_path)
+def test_immediate_repeat_is_idempotent_and_preserves_existing_presentation(
+    tmp_path: Path,
+) -> None:
+    configured = _Configured(tmp_path, presentation=True)
     configured.service.refresh()
+    original = configured.paths.wellness_file.read_bytes()
 
     result = configured.service.refresh()
 
     assert result.request_attempts == 0
+    assert result.cache_updated is False
+    assert configured.paths.wellness_file.read_bytes() == original
     assert len(configured.gateway.connections) == 1
     assert len(configured.repository.wellness_between(TODAY - timedelta(days=29), TODAY)) == 30
 
@@ -390,10 +444,18 @@ def test_invalid_and_unsupported_sources_do_not_discard_other_successes(tmp_path
             "sleep_range": UnsupportedWellnessSourceError(WellnessSource.SLEEP),
         }
     )
-    configured = _Configured(tmp_path, gateway)
+    configured = _Configured(tmp_path, gateway, presentation=True)
 
     result = configured.service.refresh()
 
+    presentation: dict[str, Any] = json.loads(configured.paths.wellness_file.read_bytes())
+    assert result.cache_updated is True
+    assert presentation["sources"][3]["failure"] == "unsupported"
+    assert presentation["sources"][4]["failure"] == "invalid_data"
+    original_presentation = configured.paths.wellness_file.read_bytes()
+    repeat = configured.service.refresh()
+    assert repeat.cache_updated is False
+    assert configured.paths.wellness_file.read_bytes() == original_presentation
     assert _source(result, WellnessSource.STEPS).refreshed is True
     assert _source(result, WellnessSource.BODY_BATTERY).refreshed is True
     assert _source(result, WellnessSource.HRV).failure is WellnessFailureClassification.INVALID_DATA
@@ -511,8 +573,10 @@ def test_rate_limit_stops_later_requests_but_keeps_earlier_source_commit(tmp_pat
     assert configured.repository.wellness_between(TODAY, TODAY)[0].steps == 111
 
 
-def test_collection_stop_prevents_verification_and_data_requests(tmp_path: Path) -> None:
-    configured = _Configured(tmp_path)
+def test_collection_stop_prevents_requests_and_updates_only_local_presentation(
+    tmp_path: Path,
+) -> None:
+    configured = _Configured(tmp_path, presentation=True)
     configured.repository.upsert_source(
         WellnessSource.STEPS,
         [],
@@ -523,8 +587,11 @@ def test_collection_stop_prevents_verification_and_data_requests(tmp_path: Path)
 
     result = configured.service.refresh(manual=True)
 
+    presentation: dict[str, Any] = json.loads(configured.paths.wellness_file.read_bytes())
     assert result.collection_enabled is False
     assert result.request_attempts == 0
+    assert result.cache_updated is True
+    assert presentation["collectionEnabled"] is False
     assert configured.gateway.tokens == []
     assert configured.repository.collection_enabled() is False
 

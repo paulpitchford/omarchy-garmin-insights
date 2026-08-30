@@ -12,6 +12,7 @@ ACCOUNT_SCOPE_FILE_NAME = "account_scope.json"
 ACTIVITY_DATABASE_FILE_NAME = "activities.sqlite3"
 SUMMARY_FILE_NAME = "summary.json"
 ACTIVITY_TRENDS_FILE_NAME = "activity-trends.json"
+WELLNESS_FILE_NAME = "wellness.json"
 SYNC_LOCK_FILE_NAME = "sync.lock"
 
 
@@ -63,6 +64,11 @@ class AppPaths:
     def activity_trends_file(self) -> Path:
         """Return the bounded activity-trends cache path."""
         return self.cache / ACTIVITY_TRENDS_FILE_NAME
+
+    @property
+    def wellness_file(self) -> Path:
+        """Return the bounded wellness presentation cache path."""
+        return self.cache / WELLNESS_FILE_NAME
 
     @property
     def sync_lock_file(self) -> Path | None:
