@@ -19,7 +19,25 @@ Column {
   property color dim: Qt.darker(foreground, 1.5)
   property string fontFamily: Style.font.family
   property int cursorIndex: 0
-  readonly property int cursorCount: 1
+  property int trendFamilyIndex: 0
+  property int trendFamilyCursorIndex: 0
+  property int trendPeriodIndex: 0
+  property int trendPeriodCursorIndex: 0
+  property int trendSleepIndex: 0
+  property int trendSleepCursorIndex: 0
+  property int trendPointIndex: 6
+  readonly property var trendFamilyKeys: [
+    "trainingReadiness", "bodyBattery", "sleep", "steps", "hrv", "restingHeartRate"
+  ]
+  readonly property var trendFamilyLabels: [
+    "Training Readiness", "Body Battery", "Sleep", "Steps", "HRV", "Resting heart rate"
+  ]
+  readonly property var trendSleepKeys: ["score", "duration", "stages"]
+  readonly property string trendFamilyKey: trendFamilyKeys[trendFamilyIndex]
+  readonly property string trendSleepKey: trendSleepKeys[trendSleepIndex]
+  readonly property int trendPeriodDays: trendPeriodIndex === 0 ? 7 : 30
+  readonly property int trendChartCursorIndex: trendFamilyKey === "sleep" ? 4 : 3
+  readonly property int cursorCount: viewIndex === 0 ? 1 : trendChartCursorIndex + 1
   readonly property var readinessDay: Model.latestWellnessDay(wellness, "trainingReadiness")
   readonly property var batteryDay: Model.latestWellnessDay(wellness, "bodyBattery")
   readonly property var sleepDay: Model.latestWellnessDay(wellness, "sleep")
@@ -30,12 +48,62 @@ Column {
 
   signal viewRequested(int index)
 
+  function setTrendFamily(index) {
+    trendFamilyIndex = Math.max(0, Math.min(trendFamilyKeys.length - 1, index))
+    trendFamilyCursorIndex = trendFamilyIndex
+    trendPointIndex = trendPeriodDays - 1
+  }
+
+  function setTrendPeriod(index) {
+    trendPeriodIndex = Math.max(0, Math.min(1, index))
+    trendPeriodCursorIndex = trendPeriodIndex
+    trendPointIndex = trendPeriodDays - 1
+  }
+
+  function setTrendSleep(index) {
+    trendSleepIndex = Math.max(0, Math.min(trendSleepKeys.length - 1, index))
+    trendSleepCursorIndex = trendSleepIndex
+    trendPointIndex = trendPeriodDays - 1
+  }
+
+  function moveTrendPoint(delta) {
+    trendPointIndex = Math.max(0, Math.min(trendPeriodDays - 1,
+      trendPointIndex + delta))
+  }
+
   function moveCursor(dx, dy) {
-    if (dx !== 0) viewRequested(Math.max(0, Math.min(1, viewIndex + dx)))
+    if (dy !== 0) {
+      cursorIndex = Math.max(0, Math.min(cursorCount - 1, cursorIndex + dy))
+      if (cursorIndex === 1) trendFamilyCursorIndex = trendFamilyIndex
+      else if (cursorIndex === 2) trendPeriodCursorIndex = trendPeriodIndex
+      else if (trendFamilyKey === "sleep" && cursorIndex === 3)
+        trendSleepCursorIndex = trendSleepIndex
+      return
+    }
+    if (dx === 0) return
+    if (cursorIndex === 0) {
+      viewRequested(Math.max(0, Math.min(1, viewIndex + dx)))
+    } else if (cursorIndex === 1) {
+      setTrendFamily(trendFamilyCursorIndex + dx)
+    } else if (cursorIndex === 2) {
+      setTrendPeriod(trendPeriodCursorIndex + dx)
+    } else if (trendFamilyKey === "sleep" && cursorIndex === 3) {
+      setTrendSleep(trendSleepCursorIndex + dx)
+    } else if (cursorIndex === trendChartCursorIndex) {
+      moveTrendPoint(dx)
+    }
   }
 
   function activateCursor() {
-    viewRequested(viewIndex === 0 ? 1 : 0)
+    if (cursorIndex === 0) {
+      viewRequested(viewIndex === 0 ? 1 : 0)
+    } else if (cursorIndex === 1) {
+      setTrendFamily(trendFamilyCursorIndex)
+    } else if (cursorIndex === 2) {
+      setTrendPeriod(trendPeriodCursorIndex)
+    } else if (trendFamilyKey === "sleep" && cursorIndex === 3) {
+      setTrendSleep(trendSleepCursorIndex)
+    }
   }
 
   function formatDate(value) {
@@ -186,6 +254,7 @@ Column {
         bordered: true
         foreground: root.foreground
         fontFamily: root.fontFamily
+        onHovered: function(on) { if (on) root.cursorIndex = 0 }
         onClicked: root.viewRequested(index)
       }
     }
@@ -388,41 +457,183 @@ Column {
     }
   }
 
-  BorderSurface {
+  Column {
+    id: trendsColumn
     visible: root.viewIndex === 1
     width: parent.width
-    implicitHeight: trendsColumn.implicitHeight + Style.space(32)
-    color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.035)
-    borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
-    radius: Style.cornerRadius
+    spacing: Style.space(10)
 
-    Column {
-      id: trendsColumn
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      anchors.margins: Style.space(16)
-      spacing: Style.space(8)
+    Item {
+      width: parent.width
+      implicitHeight: Math.max(trendsTitle.implicitHeight, trendsRange.implicitHeight)
 
       Text {
-        width: parent.width
+        id: trendsTitle
+        anchors.left: parent.left
+        anchors.right: trendsRange.left
+        anchors.rightMargin: Style.space(8)
         text: "Wellness Trends"
         color: root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.title
         font.bold: true
-        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.WordWrap
       }
 
       Text {
-        width: parent.width
-        text: "Focused wellness history remains planned for the next phase."
+        id: trendsRange
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        text: root.trendPeriodDays + " days"
         color: root.dim
         font.family: root.fontFamily
-        font.pixelSize: Style.font.body
-        horizontalAlignment: Text.AlignHCenter
-        wrapMode: Text.WordWrap
+        font.pixelSize: Style.font.caption
       }
+    }
+
+    PanelSectionHeader {
+      width: parent.width
+      text: "METRIC FAMILY"
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+    }
+
+    Grid {
+      id: familySelector
+      width: parent.width
+      columns: root.wideLayout ? 3 : 1
+      columnSpacing: Style.space(6)
+      rowSpacing: Style.space(6)
+
+      Repeater {
+        model: root.trendFamilyLabels
+
+        Button {
+          required property string modelData
+          required property int index
+          width: (familySelector.width - familySelector.columnSpacing
+            * (familySelector.columns - 1)) / familySelector.columns
+          text: modelData
+          tooltipText: "Show " + modelData + " trend"
+          Accessible.name: "Show " + modelData + " trend"
+          selected: root.trendFamilyIndex === index
+          hasCursor: root.panelCursorActive && root.hasCursor && root.cursorIndex === 1
+            && root.trendFamilyCursorIndex === index
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          horizontalPadding: Style.space(3)
+          onHovered: function(on) {
+            if (on) {
+              root.cursorIndex = 1
+              root.trendFamilyCursorIndex = index
+            }
+          }
+          onClicked: root.setTrendFamily(index)
+        }
+      }
+    }
+
+    Row {
+      id: periodSelector
+      width: parent.width
+      spacing: Style.space(6)
+
+      Repeater {
+        model: ["7 days", "30 days"]
+
+        Button {
+          required property string modelData
+          required property int index
+          width: (periodSelector.width - periodSelector.spacing) / 2
+          text: modelData
+          tooltipText: "Show the last " + modelData
+          Accessible.name: "Show the last " + modelData
+          selected: root.trendPeriodIndex === index
+          hasCursor: root.panelCursorActive && root.hasCursor && root.cursorIndex === 2
+            && root.trendPeriodCursorIndex === index
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onHovered: function(on) {
+            if (on) {
+              root.cursorIndex = 2
+              root.trendPeriodCursorIndex = index
+            }
+          }
+          onClicked: root.setTrendPeriod(index)
+        }
+      }
+    }
+
+    Row {
+      id: sleepSelector
+      visible: root.trendFamilyKey === "sleep"
+      width: parent.width
+      spacing: Style.space(6)
+
+      Repeater {
+        model: ["Score", "Duration", "Stages"]
+
+        Button {
+          required property string modelData
+          required property int index
+          width: (sleepSelector.width - sleepSelector.spacing * 2) / 3
+          text: modelData
+          tooltipText: "Show Sleep " + modelData
+          Accessible.name: "Show Sleep " + modelData
+          selected: root.trendSleepIndex === index
+          hasCursor: root.panelCursorActive && root.hasCursor && root.cursorIndex === 3
+            && root.trendSleepCursorIndex === index
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onHovered: function(on) {
+            if (on) {
+              root.cursorIndex = 3
+              root.trendSleepCursorIndex = index
+            }
+          }
+          onClicked: root.setTrendSleep(index)
+        }
+      }
+    }
+
+    WellnessTrendChart {
+      id: trendChart
+      width: parent.width
+      wellness: root.wellness
+      familyKey: root.trendFamilyKey
+      periodDays: root.trendPeriodDays
+      sleepMetric: root.trendSleepKey
+      selectedIndex: root.trendPointIndex
+      cursorActive: root.panelCursorActive && root.hasCursor
+        && root.cursorIndex === root.trendChartCursorIndex
+      foreground: root.foreground
+      dim: root.dim
+      fontFamily: root.fontFamily
+      onPointRequested: function(index) { root.trendPointIndex = index }
+      onPointHovered: function(index) {
+        root.cursorIndex = root.trendChartCursorIndex
+        root.trendPointIndex = index
+      }
+    }
+
+    Text {
+      visible: root.sourceFor(root.trendFamilyKey, null)
+        && root.sourceFor(root.trendFamilyKey, null).failure !== null
+      width: parent.width
+      text: root.failureText(root.sourceFor(root.trendFamilyKey, null))
+        + (trendChart.hasValues ? " · showing retained history" : " · no retained history")
+      textFormat: Text.PlainText
+      color: root.sourceFor(root.trendFamilyKey, null)
+        && root.sourceFor(root.trendFamilyKey, null).failure === "unsupported"
+        ? root.dim : root.urgent
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      font.bold: true
+      wrapMode: Text.WordWrap
     }
   }
 

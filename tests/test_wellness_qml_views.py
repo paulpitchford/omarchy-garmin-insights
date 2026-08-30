@@ -3,13 +3,133 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 
 
-def test_phase_seven_keeps_the_completed_shell_dormant() -> None:
+def test_phase_eight_keeps_the_completed_shell_dormant() -> None:
     widget = (ROOT / "BarWidget.qml").read_text(encoding="utf-8")
     shell = (ROOT / "PanelShell.qml").read_text(encoding="utf-8")
 
     assert 'source: Qt.resolvedUrl("Panel.qml")' in widget
     assert "PanelShell.qml" not in widget
     assert "WellnessShellPage {" in shell
+
+
+def test_wellness_trends_show_one_of_six_metric_families() -> None:
+    wellness = (ROOT / "WellnessShellPage.qml").read_text(encoding="utf-8")
+
+    assert (
+        '"trainingReadiness", "bodyBattery", "sleep", "steps", "hrv", "restingHeartRate"'
+        in wellness
+    )
+    assert "model: root.trendFamilyLabels" in wellness
+    assert wellness.count("WellnessTrendChart {") == 1
+    assert "familyKey: root.trendFamilyKey" in wellness
+
+
+def test_wellness_trends_offer_only_seven_and_thirty_day_ranges() -> None:
+    wellness = (ROOT / "WellnessShellPage.qml").read_text(encoding="utf-8")
+
+    assert 'model: ["7 days", "30 days"]' in wellness
+    assert "readonly property int trendPeriodDays: trendPeriodIndex === 0 ? 7 : 30" in wellness
+    assert "periodDays: root.trendPeriodDays" in wellness
+    assert "90 days" not in wellness[wellness.index("id: trendsColumn") :]
+
+
+def test_sleep_trends_have_clear_score_duration_and_stage_choices() -> None:
+    wellness = (ROOT / "WellnessShellPage.qml").read_text(encoding="utf-8")
+    chart = (ROOT / "WellnessTrendChart.qml").read_text(encoding="utf-8")
+
+    assert 'model: ["Score", "Duration", "Stages"]' in wellness
+    assert 'visible: root.trendFamilyKey === "sleep"' in wellness
+    assert "modelData.sleep.deepSeconds" in chart
+    assert "modelData.sleep.lightSeconds" in chart
+    assert "modelData.sleep.remSeconds" in chart
+    assert "modelData.sleep.awakeSeconds" in chart
+    assert 'return "Deep, Light, REM, and Awake shown as one daily composition"' in chart
+
+
+def test_wellness_chart_treatments_match_each_metric_semantics() -> None:
+    chart = (ROOT / "WellnessTrendChart.qml").read_text(encoding="utf-8")
+
+    assert 'familyKey === "bodyBattery" ? "range"' in chart
+    assert 'familyKey === "sleep" && sleepMetric === "stages" ? "stages"' in chart
+    assert 'familyKey === "steps"' in chart
+    assert 'visible: root.familyKey === "steps" && modelData.steps' in chart
+    assert 'visible: root.familyKey === "hrv" && modelData.hrv' in chart
+    assert "balancedLowMs" in chart
+    assert "balancedUpperMs" in chart
+    assert "lineSegment.y2 - lineSegment.y1" in chart
+
+
+def test_wellness_trends_explain_gaps_contributors_dates_and_partial_today() -> None:
+    wellness = (ROOT / "WellnessShellPage.qml").read_text(encoding="utf-8")
+    chart = (ROOT / "WellnessTrendChart.qml").read_text(encoding="utf-8")
+    model = (ROOT / "Model.js").read_text(encoding="utf-8")
+
+    assert "Model.wellnessTrendContributorCount(" in chart
+    assert (
+        'return contributorCount + (contributorCount === 1 ? " day" : " days") + subject' in chart
+    )
+    assert '" values are recorded for this range. Gaps are not zero."' in chart
+    assert (
+        'root.rangeDate(root.period.startDate) + "\u2013" + root.rangeDate(root.period.endDate)'
+        in chart
+    )
+    assert '" · Today partial at last refresh"' in chart
+    assert 'values.push("Partial at last refresh")' in chart
+    assert (
+        'trendChart.hasValues ? " · showing retained history" : " · no retained history"'
+        in wellness
+    )
+    assert "function wellnessTrendDays(wellness, periodDays)" in model
+
+
+def test_exact_wellness_values_are_available_to_pointer_and_panel_keyboard() -> None:
+    wellness = (ROOT / "WellnessShellPage.qml").read_text(encoding="utf-8")
+    chart = (ROOT / "WellnessTrendChart.qml").read_text(encoding="utf-8")
+
+    assert "function moveTrendPoint(delta)" in wellness
+    assert "moveTrendPoint(dx)" in wellness
+    assert "selectedIndex: root.trendPointIndex" in wellness
+    assert "PanelToolTip {" in chart
+    assert "text: root.pointTooltip(pointCursor.modelData)" in chart
+    assert "text: pointToolTip.text\n              textFormat: Text.PlainText" in chart
+    assert "Accessible.name: root.pointTooltip(modelData)" in chart
+    assert "text: root.selectedDetailText" in chart
+    assert "bordered: index === root.boundedSelectedIndex" in chart
+
+
+def test_goals_and_baselines_are_shown_only_for_matching_supplied_context() -> None:
+    chart = (ROOT / "WellnessTrendChart.qml").read_text(encoding="utf-8")
+
+    assert 'visible: root.familyKey === "steps" && modelData.steps' in chart
+    assert "&& modelData.steps.goal !== null" in chart
+    assert 'visible: root.familyKey === "hrv" && modelData.hrv' in chart
+    assert "&& modelData.hrv.balancedLowMs !== null" in chart
+    assert "&& modelData.hrv.balancedUpperMs !== null" in chart
+    assert '"Garmin daily goals unavailable"' in chart
+    assert '"Garmin balanced baselines unavailable"' in chart
+
+
+def test_wellness_trends_use_theme_and_style_units_at_constrained_widths() -> None:
+    wellness = (ROOT / "WellnessShellPage.qml").read_text(encoding="utf-8")
+    chart = (ROOT / "WellnessTrendChart.qml").read_text(encoding="utf-8")
+
+    assert "columns: root.wideLayout ? 3 : 1" in wellness
+    assert "width: parent.width" in chart
+    assert chart.count("Style.space(") >= 20
+    assert "root.foreground" in chart
+    assert "Color.accent" in chart
+    assert "Color.urgent" not in chart
+
+
+def test_wellness_trends_do_not_add_correlation_advice_or_unapproved_metrics() -> None:
+    chart = (ROOT / "WellnessTrendChart.qml").read_text(encoding="utf-8").lower()
+
+    assert "correlation" not in chart
+    assert "advice" not in chart
+    assert "recovery score" not in chart
+    assert "stress" not in chart
+    assert "latitude" not in chart
+    assert "longitude" not in chart
 
 
 def test_overview_has_three_wellness_signals_and_one_activity_strip() -> None:
