@@ -300,6 +300,19 @@ def test_collection_stop_is_idempotent_and_retains_stored_values(tmp_path: Path)
     assert repository.collection_enabled() is True
 
 
+def test_collection_setting_repairs_missing_account_state_row(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    repository.set_collection_enabled(True)
+    database = tmp_path / "private" / "activities.sqlite3"
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute("DELETE FROM wellness_collection_state")
+        connection.commit()
+
+    repository.set_collection_enabled(False)
+
+    assert repository.collection_enabled() is False
+
+
 def test_account_mismatch_is_rejected_before_rows_or_settings_change(tmp_path: Path) -> None:
     database = tmp_path / "private" / "activities.sqlite3"
     first = WellnessRepository(database, ACCOUNT_A)

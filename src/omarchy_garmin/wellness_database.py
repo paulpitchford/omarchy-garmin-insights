@@ -488,10 +488,11 @@ class WellnessRepository:
                 self._bind_account(connection)
                 connection.execute(
                     """
-                    UPDATE wellness_collection_state SET enabled = ?
-                    WHERE account_fingerprint = ?
+                    INSERT INTO wellness_collection_state (account_fingerprint, enabled)
+                    VALUES (?, ?)
+                    ON CONFLICT(account_fingerprint) DO UPDATE SET enabled = excluded.enabled
                     """,
-                    (int(enabled), self._account_fingerprint),
+                    (self._account_fingerprint, int(enabled)),
                 )
                 connection.execute("COMMIT")
             finally:
