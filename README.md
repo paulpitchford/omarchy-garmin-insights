@@ -4,8 +4,7 @@ Garmin Insights puts recent Garmin Connect activities and daily wellness data in
 
 ![Garmin Insights Overview with fabricated activity and wellness data](preview.png)
 
-> [!NOTE]
-> The default branch contains the accepted 0.2.0 candidate. The latest tagged release is still [`v0.1.1`](https://github.com/paulpitchford/omarchy-garmin-insights/releases/tag/v0.1.1) until the release metadata is prepared and published.
+Current release: [`v0.2.0`](https://github.com/paulpitchford/omarchy-garmin-insights/releases/tag/v0.2.0)
 
 Plugin ID: `io.github.paulpitchford.garmin-insights`
 

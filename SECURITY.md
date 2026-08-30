@@ -65,7 +65,7 @@ The private update cache stores only the last-attempt timestamp and validated pu
 
 | Version | Supported |
 |---|---|
-| 0.1.x | Yes |
-| Earlier versions | No |
+| 0.2.x | Yes |
+| 0.1.x and earlier | No |
 
 Security fixes are released from the default branch. Update through Omarchy's reviewed plugin update flow before reporting a problem that has already been fixed.
