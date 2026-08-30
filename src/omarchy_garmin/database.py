@@ -324,18 +324,21 @@ class GarminDatabase:
 
     @contextmanager
     def read_connection(self) -> Iterator[sqlite3.Connection | None]:
-        """Open the existing current-schema database read-only, or yield None if absent."""
+        """Open the existing database read-only, migrating an older safe schema first."""
         connection: sqlite3.Connection | None = None
         try:
             if not private_file_exists(self._database_path):
                 yield None
                 return
-            database_uri = f"file:{quote(str(self._database_path), safe='/')}?mode=ro"
-            connection = sqlite3.connect(database_uri, timeout=0, isolation_level=None, uri=True)
-            connection.execute("PRAGMA foreign_keys = ON")
-            connection.execute("PRAGMA trusted_schema = OFF")
-            connection.execute("PRAGMA query_only = ON")
+            connection = self._open_read_only()
             current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if current_version < SCHEMA_VERSION:
+                connection.close()
+                connection = None
+                with self.connection():
+                    pass
+                connection = self._open_read_only()
+                current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
             if current_version != SCHEMA_VERSION:
                 raise GarminDatabaseError("Garmin database schema is unavailable")
             self._validate_schema(connection, current_version)
@@ -347,6 +350,18 @@ class GarminDatabase:
         finally:
             if connection is not None:
                 connection.close()
+
+    def _open_read_only(self) -> sqlite3.Connection:
+        database_uri = f"file:{quote(str(self._database_path), safe='/')}?mode=ro"
+        connection = sqlite3.connect(database_uri, timeout=0, isolation_level=None, uri=True)
+        try:
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("PRAGMA trusted_schema = OFF")
+            connection.execute("PRAGMA query_only = ON")
+        except sqlite3.Error:
+            connection.close()
+            raise
+        return connection
 
     def _prepare_database_file(self) -> None:
         ensure_private_directory(self._database_path.parent)
