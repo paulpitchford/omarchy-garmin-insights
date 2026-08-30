@@ -20,9 +20,14 @@ class WellnessSource(StrEnum):
 
 
 class WellnessFailureClassification(StrEnum):
-    """Stable redacted classifications emitted by the wellness boundary."""
+    """Stable redacted classifications emitted by wellness refresh boundaries."""
 
+    AUTHENTICATION = "authentication"
+    RATE_LIMIT = "rate_limit"
+    OFFLINE_TRANSPORT = "offline_transport"
+    REMOTE_SERVICE = "remote_service"
     INVALID_DATA = "invalid_data"
+    LOCAL_STORAGE = "local_storage"
     UNSUPPORTED = "unsupported"
 
 

@@ -25,6 +25,7 @@ from omarchy_garmin.wellness import (
 from omarchy_garmin.wellness_database import (
     MAX_WELLNESS_UPSERT_DAYS,
     WellnessAccountMismatchError,
+    WellnessCadenceState,
     WellnessDatabaseError,
     WellnessRepository,
 )
@@ -285,6 +286,78 @@ def test_successful_source_transaction_enforces_rolling_thirty_day_retention(
     assert result.stored_count == 1
     assert result.deleted_count == 1
     assert repository.wellness_between(oldest_retained, TODAY)[0].steps == 200
+
+
+def test_cadence_attempt_metadata_is_private_selective_and_idempotent(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+
+    assert repository.cadence_state() == WellnessCadenceState()
+    repository.reserve_cadence(
+        today=TODAY,
+        attempted_at=REFRESHED_AT,
+        historical=True,
+        full_reconciliation=True,
+        backfill=False,
+        current_steps=True,
+        current_body_battery=False,
+        current_sleep=False,
+        current_training_readiness=False,
+    )
+    repository.reserve_cadence(
+        today=TODAY,
+        attempted_at=REFRESHED_AT + timedelta(minutes=30),
+        historical=False,
+        full_reconciliation=False,
+        backfill=True,
+        current_steps=False,
+        current_body_battery=True,
+        current_sleep=True,
+        current_training_readiness=True,
+    )
+
+    assert repository.cadence_state() == WellnessCadenceState(
+        historical_date=TODAY,
+        full_reconciliation_date=TODAY,
+        backfill_at=REFRESHED_AT + timedelta(minutes=30),
+        current_steps_at=REFRESHED_AT,
+        current_body_battery_at=REFRESHED_AT + timedelta(minutes=30),
+        current_sleep_at=REFRESHED_AT + timedelta(minutes=30),
+        current_training_readiness_at=REFRESHED_AT + timedelta(minutes=30),
+    )
+    assert repository.source_freshness() == []
+
+
+def test_failed_cadence_reservation_rolls_back_every_attempt_group(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    repository.set_collection_enabled(True)
+    database = tmp_path / "private" / "activities.sqlite3"
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute(
+            """
+            CREATE TRIGGER reject_wellness_cadence
+            BEFORE INSERT ON sync_state
+            WHEN NEW.key = 'wellness_current_body_battery_at'
+            BEGIN
+                SELECT RAISE(ABORT, 'fabricated interruption');
+            END
+            """
+        )
+        connection.commit()
+
+    with pytest.raises(WellnessDatabaseError):
+        repository.reserve_cadence(
+            today=TODAY,
+            attempted_at=REFRESHED_AT,
+            historical=True,
+            full_reconciliation=True,
+            backfill=True,
+            current_steps=True,
+            current_body_battery=True,
+            current_sleep=True,
+            current_training_readiness=True,
+        )
+
+    assert repository.cadence_state() == WellnessCadenceState()
 
 
 def test_collection_stop_is_idempotent_and_retains_stored_values(tmp_path: Path) -> None:
