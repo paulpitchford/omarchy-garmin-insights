@@ -46,6 +46,21 @@ from omarchy_garmin.sync import (
     RefreshResult,
 )
 from omarchy_garmin.trends import MAX_ACTIVITY_TRENDS_BYTES
+from omarchy_garmin.wellness import WellnessFailureClassification, WellnessSource
+from omarchy_garmin.wellness_sync import (
+    WellnessAccountScopeError,
+    WellnessAuthenticationError,
+    WellnessCollectionResult,
+    WellnessInvalidDataError,
+    WellnessNetworkError,
+    WellnessRateLimitedError,
+    WellnessRefreshInProgressError,
+    WellnessRefreshResult,
+    WellnessRemoteServiceError,
+    WellnessSourceRefreshResult,
+    WellnessStorageError,
+    WellnessSyncConfigurationError,
+)
 
 
 class _FakeAuthOperations:
@@ -96,6 +111,45 @@ class _FakeRefreshOperations:
             deleted_count=1,
             trends_updated=True,
         )
+
+
+class _FakeWellnessOperations:
+    def __init__(self, failure: Exception | None = None) -> None:
+        self.failure = failure
+        self.refresh_calls: list[bool] = []
+        self.collection_calls: list[bool] = []
+
+    def refresh(self, *, manual: bool = False) -> WellnessRefreshResult:
+        self.refresh_calls.append(manual)
+        if self.failure is not None:
+            raise self.failure
+        sources = tuple(
+            WellnessSourceRefreshResult(
+                source=source,
+                attempted=source is WellnessSource.USER_SUMMARY,
+                refreshed=source is WellnessSource.USER_SUMMARY,
+                stored_count=1 if source is WellnessSource.USER_SUMMARY else 0,
+                failure=(
+                    WellnessFailureClassification.UNSUPPORTED
+                    if source is WellnessSource.TRAINING_READINESS
+                    else None
+                ),
+            )
+            for source in WellnessSource
+        )
+        return WellnessRefreshResult(
+            collection_enabled=True,
+            full_reconciliation=False,
+            request_attempts=2,
+            cache_updated=True,
+            sources=sources,
+        )
+
+    def set_collection_enabled(self, enabled: bool) -> WellnessCollectionResult:
+        self.collection_calls.append(enabled)
+        if self.failure is not None:
+            raise self.failure
+        return WellnessCollectionResult(collection_enabled=enabled, cache_updated=True)
 
 
 class _FakeActivityViewOperations:
@@ -639,7 +693,11 @@ def test_auth_login_reports_verified_state() -> None:
     [
         pytest.param(
             "logout",
-            {"configured": False, "localActivityDataRetained": True},
+            {
+                "configured": False,
+                "localActivityDataRetained": True,
+                "localWellnessDataRetained": True,
+            },
             id="logout",
         ),
         pytest.param(
@@ -751,6 +809,144 @@ def test_auth_failures_map_to_redacted_error_contract(
     assert exit_status == expected_status
     assert payload["error"]["code"] == expected_code
     assert "private" not in stdout.getvalue()
+
+
+def test_wellness_refresh_json_has_bounded_redacted_contract() -> None:
+    operations = _FakeWellnessOperations()
+    stdout = StringIO()
+
+    exit_status = run(
+        ["wellness", "refresh", "--json", "--manual"],
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={"XDG_RUNTIME_DIR": "/run/user/1000"},
+        home=Path("/home/example"),
+        wellness_operations=operations,
+    )
+
+    payload: dict[str, Any] = json.loads(stdout.getvalue())
+    assert exit_status == ExitStatus.SUCCESS
+    assert operations.refresh_calls == [True]
+    assert payload["command"] == "wellness.refresh"
+    assert payload["data"]["requestAttempts"] == 2
+    assert payload["data"]["sources"][0] == {
+        "source": "user_summary",
+        "attempted": True,
+        "refreshed": True,
+        "storedCount": 1,
+        "failure": None,
+    }
+    assert payload["data"]["sources"][-1]["failure"] == "unsupported"
+
+
+@pytest.mark.parametrize(
+    ("option", "enabled"),
+    [
+        pytest.param("--enable", True, id="enable"),
+        pytest.param("--disable", False, id="disable"),
+    ],
+)
+def test_wellness_collection_requires_confirmation_and_retains_data(
+    option: str, enabled: bool
+) -> None:
+    operations = _FakeWellnessOperations()
+    rejected_stdout = StringIO()
+
+    rejected_status = run(
+        ["wellness", "collection", "--json", option],
+        stdout=rejected_stdout,
+        stderr=StringIO(),
+        environment={"XDG_RUNTIME_DIR": "/run/user/1000"},
+        home=Path("/home/example"),
+        wellness_operations=operations,
+    )
+    confirmed_stdout = StringIO()
+    confirmed_status = run(
+        ["wellness", "collection", "--json", option, "--confirm"],
+        stdout=confirmed_stdout,
+        stderr=StringIO(),
+        environment={"XDG_RUNTIME_DIR": "/run/user/1000"},
+        home=Path("/home/example"),
+        wellness_operations=operations,
+    )
+
+    assert rejected_status == ExitStatus.INVALID_ARGUMENTS
+    assert confirmed_status == ExitStatus.SUCCESS
+    assert operations.collection_calls == [enabled]
+    assert json.loads(confirmed_stdout.getvalue())["data"] == {
+        "collectionEnabled": enabled,
+        "cacheUpdated": True,
+        "retainedDataDeleted": False,
+    }
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_code", "expected_status"),
+    [
+        pytest.param(
+            WellnessSyncConfigurationError("private"),
+            "invalid_configuration",
+            10,
+            id="configuration",
+        ),
+        pytest.param(WellnessAccountScopeError("private"), "account_mismatch", 20, id="account"),
+        pytest.param(
+            WellnessAuthenticationError("private"), "auth_required", 20, id="authentication"
+        ),
+        pytest.param(WellnessRateLimitedError("private"), "rate_limited", 30, id="rate"),
+        pytest.param(WellnessNetworkError("private"), "network_unavailable", 30, id="network"),
+        pytest.param(
+            WellnessRemoteServiceError("private"),
+            "remote_service_error",
+            30,
+            id="remote",
+        ),
+        pytest.param(WellnessInvalidDataError("private"), "invalid_remote_data", 40, id="data"),
+        pytest.param(WellnessStorageError("private"), "local_storage_error", 50, id="storage"),
+        pytest.param(
+            WellnessRefreshInProgressError("private"),
+            "refresh_in_progress",
+            60,
+            id="concurrency",
+        ),
+    ],
+)
+def test_wellness_failures_map_to_redacted_error_contract(
+    failure: Exception, expected_code: str, expected_status: int
+) -> None:
+    stdout = StringIO()
+
+    exit_status = run(
+        ["wellness", "refresh", "--json"],
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={"XDG_RUNTIME_DIR": "/run/user/1000"},
+        home=Path("/home/example"),
+        wellness_operations=_FakeWellnessOperations(failure),
+    )
+
+    payload: dict[str, Any] = json.loads(stdout.getvalue())
+    assert exit_status == expected_status
+    assert payload["command"] == "wellness.refresh"
+    assert payload["error"]["code"] == expected_code
+    assert "private" not in stdout.getvalue()
+
+
+def test_wellness_refresh_default_composition_requires_stored_authentication(
+    tmp_path: Path,
+) -> None:
+    stdout = StringIO()
+
+    exit_status = run(
+        ["wellness", "refresh", "--json"],
+        stdout=stdout,
+        stderr=StringIO(),
+        environment={"XDG_RUNTIME_DIR": str(tmp_path / "runtime")},
+        home=tmp_path,
+    )
+
+    assert exit_status == ExitStatus.AUTHENTICATION_ERROR
+    assert json.loads(stdout.getvalue())["error"]["code"] == "auth_required"
 
 
 def test_activity_list_json_has_bounded_local_contract() -> None:

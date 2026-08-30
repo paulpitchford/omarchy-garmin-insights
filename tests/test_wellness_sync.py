@@ -596,6 +596,41 @@ def test_collection_stop_prevents_requests_and_updates_only_local_presentation(
     assert configured.repository.collection_enabled() is False
 
 
+def test_collection_change_is_local_idempotent_and_updates_presentation(tmp_path: Path) -> None:
+    configured = _Configured(tmp_path, presentation=True)
+
+    stopped = configured.service.set_collection_enabled(False)
+    stopped_payload: dict[str, Any] = json.loads(configured.paths.wellness_file.read_bytes())
+    repeated = configured.service.set_collection_enabled(False)
+    enabled = configured.service.set_collection_enabled(True)
+
+    assert stopped.collection_enabled is False
+    assert stopped.cache_updated is True
+    assert stopped_payload["collectionEnabled"] is False
+    assert repeated.collection_enabled is False
+    assert enabled.collection_enabled is True
+    assert configured.repository.collection_enabled() is True
+    assert configured.gateway.tokens == []
+
+
+def test_collection_change_requires_account_scope_and_shared_lock(tmp_path: Path) -> None:
+    paths = _paths(tmp_path / "unscoped")
+    unscoped = WellnessSyncService(paths=paths, auth_store=AuthStore(paths), gateway=_FakeGateway())
+
+    with pytest.raises(WellnessAuthenticationError):
+        unscoped.set_collection_enabled(False)
+
+    configured = _Configured(tmp_path / "configured")
+    with (
+        activity_refresh_lock(configured.paths.sync_lock_file),
+        pytest.raises(WellnessRefreshInProgressError),
+    ):
+        configured.service.set_collection_enabled(False)
+
+    assert configured.repository.collection_enabled() is True
+    assert configured.gateway.tokens == []
+
+
 def test_failed_cadence_reservation_stops_before_first_data_request(tmp_path: Path) -> None:
     configured = _Configured(tmp_path)
     configured.repository.set_collection_enabled(True)

@@ -10,7 +10,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
-from typing import NoReturn, TextIO
+from typing import NoReturn, Protocol, TextIO
 
 from omarchy_garmin import __version__
 from omarchy_garmin.activity_views import (
@@ -68,9 +68,35 @@ from omarchy_garmin.sync import (
     ActivitySyncService,
     RefreshOperations,
 )
+from omarchy_garmin.wellness_sync import (
+    WellnessAccountScopeError,
+    WellnessAuthenticationError,
+    WellnessCollectionResult,
+    WellnessInvalidDataError,
+    WellnessNetworkError,
+    WellnessRateLimitedError,
+    WellnessRefreshInProgressError,
+    WellnessRefreshResult,
+    WellnessRemoteServiceError,
+    WellnessStorageError,
+    WellnessSyncConfigurationError,
+    WellnessSyncError,
+)
 
 OUTPUT_SCHEMA_VERSION = 1
 _KNOWN_AUTH_COMMANDS = frozenset({"status", "login", "logout", "purge"})
+
+
+class WellnessOperations(Protocol):
+    """Wellness operations exposed through the production CLI."""
+
+    def refresh(self, *, manual: bool = False) -> WellnessRefreshResult:
+        """Run one bounded wellness refresh."""
+        ...
+
+    def set_collection_enabled(self, enabled: bool) -> WellnessCollectionResult:
+        """Change future wellness collection without deleting retained values."""
+        ...
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -108,6 +134,20 @@ def _build_parser() -> argparse.ArgumentParser:
     refresh = subparsers.add_parser("refresh", help="synchronize recent Garmin activities")
     refresh.add_argument("--json", action="store_true", dest="as_json")
     refresh.add_argument("--full", action="store_true", dest="force_full")
+
+    wellness = subparsers.add_parser("wellness", help="manage bounded wellness collection")
+    wellness_subparsers = wellness.add_subparsers(
+        dest="wellness_command", required=True, parser_class=_ArgumentParser
+    )
+    wellness_refresh = wellness_subparsers.add_parser("refresh")
+    wellness_refresh.add_argument("--json", action="store_true", dest="as_json")
+    wellness_refresh.add_argument("--manual", action="store_true")
+    wellness_collection = wellness_subparsers.add_parser("collection")
+    wellness_collection.add_argument("--json", action="store_true", dest="as_json")
+    collection_state = wellness_collection.add_mutually_exclusive_group(required=True)
+    collection_state.add_argument("--enable", action="store_true")
+    collection_state.add_argument("--disable", action="store_true")
+    wellness_collection.add_argument("--confirm", action="store_true")
 
     activities = subparsers.add_parser("activities", help="read local activity details")
     activity_subparsers = activities.add_subparsers(
@@ -278,6 +318,20 @@ def _default_refresh_operations(paths: AppPaths) -> RefreshOperations:
     )
 
 
+def _default_wellness_operations(paths: AppPaths) -> WellnessOperations:
+    """Build wellness dependencies at the process composition root."""
+    from omarchy_garmin.garmin_gateway import GarminWellnessGateway
+    from omarchy_garmin.wellness_presentation import WellnessPresentationCache
+    from omarchy_garmin.wellness_sync import WellnessSyncService
+
+    return WellnessSyncService(
+        paths=paths,
+        auth_store=AuthStore(paths),
+        gateway=GarminWellnessGateway(),
+        presentation=WellnessPresentationCache(paths.wellness_file),
+    )
+
+
 def _write_auth_success(
     *,
     stdout: TextIO,
@@ -339,8 +393,12 @@ def _run_auth(
             stdout=stdout,
             command=command,
             as_json=arguments.as_json,
-            data={"configured": False, "localActivityDataRetained": True},
-            human_message="Garmin tokens removed. Local activity data retained.",
+            data={
+                "configured": False,
+                "localActivityDataRetained": True,
+                "localWellnessDataRetained": True,
+            },
+            human_message="Garmin tokens removed. Local activity and wellness data retained.",
         )
     if action == "purge":
         auth.purge()
@@ -349,7 +407,7 @@ def _run_auth(
             command=command,
             as_json=arguments.as_json,
             data={"configured": False, "localDataRetained": False},
-            human_message="Local Garmin authentication and activity data removed.",
+            human_message="Local Garmin authentication, activity, and wellness data removed.",
         )
     raise AssertionError(f"unhandled auth command: {action}")  # pragma: no cover
 
@@ -382,6 +440,67 @@ def _run_refresh(
             f"{result.deleted_count} removed)."
         ),
     )
+
+
+def _wellness_refresh_data(result: WellnessRefreshResult) -> dict[str, object]:
+    return {
+        "collectionEnabled": result.collection_enabled,
+        "fullReconciliation": result.full_reconciliation,
+        "requestAttempts": result.request_attempts,
+        "cacheUpdated": result.cache_updated,
+        "sources": [
+            {
+                "source": source.source.value,
+                "attempted": source.attempted,
+                "refreshed": source.refreshed,
+                "storedCount": source.stored_count,
+                "failure": source.failure.value if source.failure is not None else None,
+            }
+            for source in result.sources
+        ],
+    }
+
+
+def _run_wellness(
+    arguments: argparse.Namespace,
+    *,
+    paths: AppPaths,
+    stdout: TextIO,
+    operations: WellnessOperations | None,
+) -> int:
+    """Run one bounded wellness refresh or confirmed collection change."""
+    wellness = operations or _default_wellness_operations(paths)
+    action: str = arguments.wellness_command
+    if action == "refresh":
+        refresh_result = wellness.refresh(manual=arguments.manual)
+        return _write_auth_success(
+            stdout=stdout,
+            command="wellness.refresh",
+            as_json=arguments.as_json,
+            data=_wellness_refresh_data(refresh_result),
+            human_message="Garmin wellness data refreshed.",
+        )
+    if action == "collection":
+        if not arguments.confirm:
+            raise CommandError(ErrorCode.INVALID_ARGUMENTS)
+        enabled = arguments.enable is True
+        collection_result = wellness.set_collection_enabled(enabled)
+        return _write_auth_success(
+            stdout=stdout,
+            command="wellness.collection",
+            as_json=arguments.as_json,
+            data={
+                "collectionEnabled": collection_result.collection_enabled,
+                "cacheUpdated": collection_result.cache_updated,
+                "retainedDataDeleted": False,
+            },
+            human_message=(
+                "Garmin wellness collection enabled."
+                if enabled
+                else "Garmin wellness collection stopped; retained data was not deleted."
+            ),
+        )
+    raise AssertionError(f"unhandled wellness command: {action}")  # pragma: no cover
 
 
 def _run_activity_view(
@@ -454,6 +573,8 @@ def _requested_command(argv: Sequence[str]) -> str | None:
         return argv[0]
     if len(argv) > 1 and argv[0] == "auth" and argv[1] in _KNOWN_AUTH_COMMANDS:
         return f"auth.{argv[1]}"
+    if len(argv) > 1 and argv[0] == "wellness" and argv[1] in {"refresh", "collection"}:
+        return f"wellness.{argv[1]}"
     if len(argv) > 1 and argv[0] == "activities" and argv[1] in {"list", "detail"}:
         return f"activities.{argv[1]}"
     if len(argv) > 1 and argv[0] == "cache" and argv[1] == "read":
@@ -523,6 +644,29 @@ def _sync_error_code(error: ActivitySyncError) -> ErrorCode:
     return ErrorCode.INTERNAL_ERROR
 
 
+def _wellness_error_code(error: WellnessSyncError) -> ErrorCode:
+    """Map wellness failures to the stable process contract."""
+    if isinstance(error, WellnessSyncConfigurationError):
+        return ErrorCode.INVALID_CONFIGURATION
+    if isinstance(error, WellnessAccountScopeError):
+        return ErrorCode.ACCOUNT_MISMATCH
+    if isinstance(error, WellnessAuthenticationError):
+        return ErrorCode.AUTH_REQUIRED
+    if isinstance(error, WellnessRateLimitedError):
+        return ErrorCode.RATE_LIMITED
+    if isinstance(error, WellnessNetworkError):
+        return ErrorCode.NETWORK_UNAVAILABLE
+    if isinstance(error, WellnessRemoteServiceError):
+        return ErrorCode.REMOTE_SERVICE_ERROR
+    if isinstance(error, WellnessInvalidDataError):
+        return ErrorCode.INVALID_REMOTE_DATA
+    if isinstance(error, WellnessStorageError):
+        return ErrorCode.LOCAL_STORAGE_ERROR
+    if isinstance(error, WellnessRefreshInProgressError):
+        return ErrorCode.REFRESH_IN_PROGRESS
+    return ErrorCode.INTERNAL_ERROR
+
+
 def _auth_error_code(error: AuthError) -> ErrorCode:
     """Map authentication-domain failures to the stable process contract."""
     if isinstance(error, InteractiveTerminalRequiredError):
@@ -546,6 +690,36 @@ def _auth_error_code(error: AuthError) -> ErrorCode:
     return ErrorCode.INTERNAL_ERROR
 
 
+def _known_error_code(
+    error: CommandError
+    | AuthError
+    | ActivitySyncError
+    | WellnessSyncError
+    | ActivityViewError
+    | DisplayCacheError,
+) -> ErrorCode:
+    """Map an expected domain failure to one fixed public error code."""
+    if isinstance(error, CommandError):
+        return error.code
+    if isinstance(error, AuthError):
+        return _auth_error_code(error)
+    if isinstance(error, ActivitySyncError):
+        return _sync_error_code(error)
+    if isinstance(error, WellnessSyncError):
+        return _wellness_error_code(error)
+    if isinstance(error, ActivityViewError):
+        return (
+            ErrorCode.INVALID_ARGUMENTS
+            if isinstance(error, ActivityViewRequestError)
+            else ErrorCode.LOCAL_STORAGE_ERROR
+        )
+    return (
+        ErrorCode.CACHE_MISSING
+        if isinstance(error, DisplayCacheMissingError)
+        else ErrorCode.LOCAL_STORAGE_ERROR
+    )
+
+
 def _dispatch_command(
     arguments: argparse.Namespace,
     *,
@@ -555,6 +729,7 @@ def _dispatch_command(
     stderr: TextIO,
     auth_operations: AuthOperations | None,
     refresh_operations: RefreshOperations | None,
+    wellness_operations: WellnessOperations | None,
     activity_view_operations: ActivityViewOperations | None,
     display_cache_operations: DisplayCacheOperations | None,
 ) -> int:
@@ -581,6 +756,13 @@ def _dispatch_command(
             paths=paths,
             stdout=stdout,
             operations=refresh_operations,
+        )
+    if arguments.command == "wellness":
+        return _run_wellness(
+            arguments,
+            paths=paths,
+            stdout=stdout,
+            operations=wellness_operations,
         )
     if arguments.command == "activities":
         return _run_activity_view(
@@ -609,6 +791,7 @@ def run(
     home: Path,
     auth_operations: AuthOperations | None = None,
     refresh_operations: RefreshOperations | None = None,
+    wellness_operations: WellnessOperations | None = None,
     activity_view_operations: ActivityViewOperations | None = None,
     display_cache_operations: DisplayCacheOperations | None = None,
 ) -> int:
@@ -623,6 +806,7 @@ def run(
         home: Home directory used for XDG defaults.
         auth_operations: Optional injected authentication boundary for tests.
         refresh_operations: Optional injected activity-refresh boundary for tests.
+        wellness_operations: Optional injected wellness boundary for tests.
         activity_view_operations: Optional injected local activity-view boundary for tests.
         display_cache_operations: Optional injected hardened cache-read boundary for tests.
 
@@ -642,54 +826,24 @@ def run(
             stderr=stderr,
             auth_operations=auth_operations,
             refresh_operations=refresh_operations,
+            wellness_operations=wellness_operations,
             activity_view_operations=activity_view_operations,
             display_cache_operations=display_cache_operations,
         )
-    except CommandError as error:
+    except (
+        CommandError,
+        AuthError,
+        ActivitySyncError,
+        WellnessSyncError,
+        ActivityViewError,
+        DisplayCacheError,
+    ) as error:
         return _write_error(
             stdout=stdout,
             stderr=stderr,
             command=command,
             as_json=as_json,
-            code=error.code,
-        )
-    except AuthError as error:
-        return _write_error(
-            stdout=stdout,
-            stderr=stderr,
-            command=command,
-            as_json=as_json,
-            code=_auth_error_code(error),
-        )
-    except ActivitySyncError as error:
-        return _write_error(
-            stdout=stdout,
-            stderr=stderr,
-            command=command,
-            as_json=as_json,
-            code=_sync_error_code(error),
-        )
-    except ActivityViewError as error:
-        code = (
-            ErrorCode.INVALID_ARGUMENTS
-            if isinstance(error, ActivityViewRequestError)
-            else ErrorCode.LOCAL_STORAGE_ERROR
-        )
-        return _write_error(
-            stdout=stdout,
-            stderr=stderr,
-            command=command,
-            as_json=as_json,
-            code=code,
-        )
-    except DisplayCacheError as error:
-        code = (
-            ErrorCode.CACHE_MISSING
-            if isinstance(error, DisplayCacheMissingError)
-            else ErrorCode.LOCAL_STORAGE_ERROR
-        )
-        return _write_error(
-            stdout=stdout, stderr=stderr, command=command, as_json=as_json, code=code
+            code=_known_error_code(error),
         )
     except Exception:  # noqa: BLE001 - final process boundary returns a fixed, redacted failure
         return _write_error(

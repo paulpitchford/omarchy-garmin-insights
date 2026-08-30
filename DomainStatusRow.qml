@@ -18,7 +18,9 @@ Grid {
       service.connectionState) !== -1
   readonly property int wellnessFailureCount: sourceCount(false)
   readonly property int wellnessUnsupportedCount: sourceCount(true)
-  readonly property bool wellnessProblem: service && (wellnessFailureCount > 0
+  readonly property bool wellnessProblem: service && !service.demoMode
+    && (service.wellnessFailureKind !== ""
+    || wellnessFailureCount > 0
     || (service.wellnessCacheError !== "" && service.wellnessCacheError !== "missing"))
   readonly property string activityText: {
     if (!service) return "Service loading"
@@ -28,6 +30,8 @@ Grid {
   }
   readonly property string wellnessText: {
     if (!service) return "Service loading"
+    if (!service.demoMode && service.wellnessFailureKind !== "")
+      return service.wellness ? "Refresh failed · showing retained data" : "Wellness refresh failed"
     if (service.wellness) {
       var prefix = wellnessFailureCount > 0
         ? wellnessFailureCount + (wellnessFailureCount === 1 ? " source failed · " : " sources failed · ")

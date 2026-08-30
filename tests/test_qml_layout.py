@@ -15,12 +15,11 @@ def test_panel_keeps_action_footer_outside_scrollable_content() -> None:
     assert "onViewModeChanged: scroll.contentY = 0" in panel
 
 
-def test_phase_six_shell_is_dormant_and_uses_public_panel_fitting() -> None:
+def test_production_shell_uses_public_panel_fitting() -> None:
     widget = (ROOT / "BarWidget.qml").read_text(encoding="utf-8")
     shell = (ROOT / "PanelShell.qml").read_text(encoding="utf-8")
 
-    assert 'source: Qt.resolvedUrl("Panel.qml")' in widget
-    assert "PanelShell.qml" not in widget
+    assert 'source: Qt.resolvedUrl("PanelShell.qml")' in widget
     assert "panel.fittedContentWidth(Style.space(600))" in shell
     assert "panel.fittedContentHeight(" in shell
     assert "Style.space(session.modeIndex === 0 ? 600 : 800)" in shell
@@ -60,6 +59,20 @@ def test_phase_six_shell_contains_the_accepted_navigation_and_pages() -> None:
     assert 'if (session.confirmationKind !== "")' in shell
     assert 'if (session.modeIndex === 2 && session.activityViewMode !== "summary")' in shell
     assert 'if (session.modeIndex === 3 && session.settingsViewMode === "account")' in shell
+
+
+def test_phase_nine_shell_wires_confirmed_sensitive_actions_to_the_service() -> None:
+    shell = (ROOT / "PanelShell.qml").read_text(encoding="utf-8")
+    service = (ROOT / "Service.qml").read_text(encoding="utf-8")
+
+    assert "service.setWellnessCollection(enabled)" in shell
+    assert "service.logout()" in shell
+    assert "service.purge()" in shell
+    assert "service.openHelp()" in shell
+    assert '"wellness", "collection", "--json"' in service
+    assert '["auth", "logout", "--json", "--confirm"]' in service
+    assert '["auth", "purge", "--json", "--confirm"]' in service
+    assert '["/usr/bin/xdg-open", sourceDir + "/README.md"]' in service
 
 
 def test_phase_six_header_refresh_is_persistent_and_accessible() -> None:
@@ -118,3 +131,7 @@ def test_phase_six_settings_groups_preferences_status_and_sensitive_actions() ->
     assert "signal purgeRequested()" in shell
     assert "ConfirmDialog {" in shell
     assert "Stopping wellness collection, logging out, and purging are separate actions" in settings
+    assert (
+        "readonly property bool sensitiveActionsEnabled: service && !service.demoMode" in settings
+    )
+    assert settings.count("actionEnabled: root.sensitiveActionsEnabled") == 3

@@ -30,6 +30,8 @@ Column {
   readonly property bool updateChecksEnabled: setting("checkForUpdates", true) !== false
   readonly property bool collectionEnabled: !service || !service.wellness
     ? true : service.wellness.collectionEnabled === true
+  readonly property bool sensitiveActionsEnabled: service && !service.demoMode
+    && !service.processRunning
 
   signal settingsRequested(var values)
   signal updateActionRequested()
@@ -77,11 +79,11 @@ Column {
   function activateCursor() {
     if (viewMode === "account") {
       if (cursorIndex === 0) backRequested()
-      else if (cursorIndex === 1) confirmationRequested("logout")
-      else confirmationRequested("purge")
+      else if (sensitiveActionsEnabled && cursorIndex === 1) confirmationRequested("logout")
+      else if (sensitiveActionsEnabled) confirmationRequested("purge")
       return
     }
-    if (cursorIndex === 0) confirmationRequested("collection")
+    if (cursorIndex === 0 && sensitiveActionsEnabled) confirmationRequested("collection")
     else if (cursorIndex === 1) settingsRequested({ units: unitKeys[(unitsIndex + 1) % unitKeys.length] })
     else if (cursorIndex === 2)
       settingsRequested({ refreshMinutes: normalizedCadence(refreshMinutes + 5) })
@@ -154,6 +156,7 @@ Column {
             : "Off · retained local data remains"
           actionText: root.collectionEnabled ? "Stop collection…" : "Enable collection…"
           settingIndex: 0
+          actionEnabled: root.sensitiveActionsEnabled
           onTriggered: root.confirmationRequested("collection")
         }
         PanelSeparator { width: parent.width; foreground: root.foreground }
@@ -296,6 +299,7 @@ Column {
       detail: "Logout removes saved tokens but retains local insights"
       actionText: "Log out…"
       settingIndex: 1
+      actionEnabled: root.sensitiveActionsEnabled
       onTriggered: root.confirmationRequested("logout")
     }
 
@@ -306,6 +310,7 @@ Column {
       actionText: "Purge…"
       settingIndex: 2
       urgentAction: true
+      actionEnabled: root.sensitiveActionsEnabled
       onTriggered: root.confirmationRequested("purge")
     }
 

@@ -137,6 +137,10 @@ class WellnessRepositoryOperations(Protocol):
         """Return whether future wellness requests are enabled."""
         ...
 
+    def set_collection_enabled(self, enabled: bool) -> None:
+        """Set collection state without deleting retained wellness values."""
+        ...
+
     def cadence_state(self) -> WellnessCadenceState:
         """Return validated private request-attempt metadata."""
         ...
@@ -322,6 +326,14 @@ class WellnessRefreshResult:
     sources: tuple[WellnessSourceRefreshResult, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class WellnessCollectionResult:
+    """Result of changing collection without making a Garmin request."""
+
+    collection_enabled: bool
+    cache_updated: bool
+
+
 @dataclass(slots=True)
 class _SourceAccumulator:
     attempted: bool = False
@@ -490,6 +502,39 @@ class WellnessSyncService:
             raise WellnessSyncConfigurationError("XDG runtime storage is required") from error
         except RefreshLockStorageError as error:
             raise WellnessStorageError("wellness refresh lock is unavailable") from error
+
+    def set_collection_enabled(self, enabled: bool) -> WellnessCollectionResult:
+        """Change collection under the shared lock without contacting Garmin."""
+        if not isinstance(enabled, bool):
+            raise ValueError("enabled must be a boolean")
+        try:
+            with sync_refresh_lock(self._paths.sync_lock_file):
+                return self._set_collection_enabled_locked(enabled)
+        except RefreshInProgressError as error:
+            raise WellnessRefreshInProgressError("a Garmin refresh is already running") from error
+        except RefreshRuntimeUnavailableError as error:
+            raise WellnessSyncConfigurationError("XDG runtime storage is required") from error
+        except RefreshLockStorageError as error:
+            raise WellnessStorageError("wellness refresh lock is unavailable") from error
+
+    def _set_collection_enabled_locked(self, enabled: bool) -> WellnessCollectionResult:
+        try:
+            account_fingerprint = self._auth_store.read_scope()
+        except AuthStorageError as error:
+            raise WellnessStorageError("wellness account scope is unavailable") from error
+        if account_fingerprint is None:
+            raise WellnessAuthenticationError("Garmin account scope is required")
+        try:
+            repository = self._repository_factory(account_fingerprint)
+            repository.set_collection_enabled(enabled)
+            today = self._today()
+            now = self._now()
+            cache_updated = self._write_presentation(repository, today, now, enabled, {})
+        except WellnessAccountMismatchError as error:
+            raise WellnessAccountScopeError("wellness data belongs to another account") from error
+        except WellnessDatabaseError as error:
+            raise WellnessStorageError("wellness collection state is unavailable") from error
+        return WellnessCollectionResult(enabled, cache_updated)
 
     def _refresh_locked(self, *, manual: bool) -> WellnessRefreshResult:
         try:
