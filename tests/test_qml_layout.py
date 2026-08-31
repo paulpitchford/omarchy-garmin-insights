@@ -89,6 +89,14 @@ def test_phase_six_header_refresh_is_persistent_and_accessible() -> None:
     assert 'if (text === "r" || text === "R") root.primaryAction()' in shell
 
 
+def test_panel_headers_omit_unofficial_badge() -> None:
+    production_shell = (ROOT / "PanelShell.qml").read_text(encoding="utf-8")
+    legacy_panel = (ROOT / "Panel.qml").read_text(encoding="utf-8")
+
+    assert "UNOFFICIAL" not in production_shell
+    assert "UNOFFICIAL" not in legacy_panel
+
+
 def test_phase_six_activities_preserve_contracts_and_drilldown_selection() -> None:
     activities = (ROOT / "ActivitiesView.qml").read_text(encoding="utf-8")
 

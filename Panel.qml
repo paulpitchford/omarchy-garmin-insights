@@ -354,7 +354,6 @@ Panel {
             width: parent.width
             title: "Garmin Insights"
             meta: root.service ? root.service.statusText : "Service loading"
-            detail: root.service && root.service.demoMode ? "UNOFFICIAL · DEMO" : "UNOFFICIAL"
             foreground: root.foreground
             fontFamily: root.fontFamily
             iconComponent: Component {
