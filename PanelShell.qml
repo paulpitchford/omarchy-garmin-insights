@@ -359,6 +359,22 @@ Panel {
           fontFamily: root.fontFamily
         }
 
+        Button {
+          id: primarySetupButton
+          width: parent.width
+          visible: root.service && ["setup", "unauthenticated", "reconnect", "localError"].indexOf(root.service.connectionState) !== -1
+          text: root.actionLabel()
+          tooltipText: root.actionLabel()
+          Accessible.name: root.actionLabel()
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          enabled: root.service && !root.service.processRunning
+            && !(root.service.connectionState === "setup" && root.service.uvPath === "")
+          onHovered: function(on) { if (on) { root.cursorActive = false } }
+          onClicked: root.primaryAction()
+        }
+
         Row {
           id: topNavigation
           width: parent.width
