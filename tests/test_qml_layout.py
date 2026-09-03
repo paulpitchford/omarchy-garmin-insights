@@ -89,6 +89,15 @@ def test_phase_six_header_refresh_is_persistent_and_accessible() -> None:
     assert 'if (text === "r" || text === "R") root.primaryAction()' in shell
 
 
+def test_phase_six_shell_shows_visible_onboarding_action() -> None:
+    shell = (ROOT / "PanelShell.qml").read_text(encoding="utf-8")
+
+    assert "id: primarySetupButton" in shell
+    assert '"setup", "unauthenticated", "reconnect", "localError"' in shell
+    assert "text: root.actionLabel()" in shell
+    assert "onClicked: root.primaryAction()" in shell
+
+
 def test_panel_headers_omit_unofficial_badge() -> None:
     production_shell = (ROOT / "PanelShell.qml").read_text(encoding="utf-8")
     legacy_panel = (ROOT / "Panel.qml").read_text(encoding="utf-8")
