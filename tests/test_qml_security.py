@@ -35,6 +35,24 @@ def test_sensitive_settings_actions_remain_confirmed_and_service_owned() -> None
     assert 'confirmationRequested("purge")' in settings
 
 
+def test_service_resolves_checkout_without_injected_source_dir() -> None:
+    root = Path(__file__).parents[1]
+    service = (root / "Service.qml").read_text(encoding="utf-8")
+    model = (root / "Model.js").read_text(encoding="utf-8")
+
+    assert "readonly property string sourceDir: manifest && manifest.__sourceDir" not in service
+    assert "Model.pluginSourceDir(" in service
+    assert 'Qt.resolvedUrl(".")' in service
+    assert "function pluginSourceDir(" in model
+    assert "function setupCommand(" in model
+    assert "function loginCommand(" in model
+    assert "omarchy-launch-floating-terminal-with-presentation" in model
+    assert "Model.setupCommand(uvPath, sourceDir, pythonEnvironmentPath)" in service
+    assert "Model.loginCommand(uvPath, sourceDir, pythonEnvironmentPath)" in service
+    assert '"/usr/share/omarchy/bin/omarchy-launch-terminal"' not in service
+    assert '"/usr/share/omarchy/bin/omarchy-launch-terminal"' not in model
+
+
 def test_activity_and_wellness_refreshes_are_sequential_and_bounded() -> None:
     service = (Path(__file__).parents[1] / "Service.qml").read_text(encoding="utf-8")
 
