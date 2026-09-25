@@ -329,6 +329,15 @@ class _GarminWellnessConnection:
             lambda: self._client.get_training_readiness(requested_date.isoformat()),
         )
 
+    def max_metrics(self, start_date: date, end_date: date) -> object:
+        return self._call(
+            WellnessSource.VO2_MAX,
+            lambda: self._client.get_max_metrics_range(
+                start_date.isoformat(),
+                end_date.isoformat(),
+            ),
+        )
+
     def verify_profile(self) -> object:
         """Make the one fixed public account-verification request."""
         return self._call(None, lambda: self._client.connectapi(_SOCIAL_PROFILE_PATH))

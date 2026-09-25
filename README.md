@@ -32,7 +32,7 @@ The panel opens on Overview and keeps Activities and Wellness separate. Each dom
 
 ### Wellness Today and Trends
 
-Wellness Today shows Training Readiness, Body Battery, Sleep, Steps, HRV, and resting heart rate. Values keep Garmin's dates, goals, baselines, scores, and statuses. Missing values remain unavailable rather than becoming zero.
+Wellness Today shows Training Readiness, Body Battery, Sleep, Steps, HRV, resting heart rate, and VO2 max. Values keep Garmin's dates, goals, baselines, scores, and statuses. Missing values remain unavailable rather than becoming zero.
 
 Trends show one metric family at a time over 7 or 30 days. The chart changes with the metric: Body Battery uses daily ranges, Sleep can show score, duration, or stacked stages, Steps uses Garmin's goal, and HRV uses Garmin's balanced baseline.
 
@@ -80,6 +80,7 @@ Every image in this repository comes from the built-in synthetic demo. No Garmin
 - Steps against Garmin's supplied daily goal.
 - HRV last-night and weekly averages, Garmin status, and balanced baseline.
 - Resting heart rate.
+- Running and cycling VO2 max.
 - Seven-day and 30-day trends with exact dated values through pointer and keyboard controls.
 - Source-specific missing, unsupported, stale, and failed states.
 - Thirty rolling local dates of approved daily scalars.
@@ -228,7 +229,7 @@ Activity and Wellness share one no-overlap service and one owner-only runtime lo
 ### Wellness cadence
 
 - Current Steps and Body Battery can refresh every 30 minutes.
-- Current Sleep and Training Readiness can refresh every four hours.
+- Current Sleep, Training Readiness, and VO2 max can refresh every four hours.
 - The first Wellness refresh reconciles the retained 30-day range.
 - Historical range reconciliation runs at most once per local date.
 - Another complete 30-day range reconciliation runs no more than once per seven local dates.
@@ -391,6 +392,7 @@ Wellness storage contains only the local date and approved daily scalars:
 - Training Readiness score and Garmin level.
 - HRV weekly average, last-night average, Garmin status, and balanced baseline bounds.
 - Resting heart rate.
+- Running and cycling VO2 max.
 
 Body Battery samples and Training Readiness selection timestamps are transient reduction inputs and are discarded before persistence. Missing values remain null, explicit zero remains zero, and remote status text is displayed only as plain text.
 
@@ -437,6 +439,7 @@ A Wellness command verifies the account with `/userprofile-service/socialProfile
 - `/hrv-service/hrv/daily/{start}/{end}` and `/hrv-service/hrv/{date}` for HRV.
 - `/userstats-service/wellness/daily/{displayName}` with metric ID 60 for resting heart rate.
 - `/metrics-service/metrics/trainingreadiness/{date}` for Training Readiness.
+- `/metrics-service/metrics/maxmet/daily/{start}/{end}` for running and cycling VO2 max.
 
 One Wellness command makes at most one verification call, 18 planned data calls, and one retry of one transport or HTTP 5xx failure. The hard limit is 20 Garmin HTTP attempts and a 120-second deadline. Authentication failures and HTTP 429 do not retry.
 
@@ -630,7 +633,7 @@ QML displays trends only when their generation timestamp, dates, and counts matc
 
 ### Wellness presentation
 
-Wellness schema version 1 always contains 30 ordered local dates ending on `asOfLocalDate`. It has fixed nullable groups for the approved scalars, 7-day and 30-day contributor counts for every scalar, seven source states with freshness and stable failure classification, collection state, and partial-current-day markers for Steps and Body Battery.
+Wellness schema version 2 always contains 30 ordered local dates ending on `asOfLocalDate`. It has fixed nullable groups for the approved scalars, including running and cycling VO2 max, 7-day and 30-day contributor counts for every scalar, eight source states with freshness and stable failure classification, collection state, and partial-current-day markers for Steps and Body Battery.
 
 The presentation contains no account scope, request metadata, exception text, Training Readiness selection timestamps, or unreviewed remote fields. It is capped at 64 KiB. Today is the machine's local date. Sleep belongs to Garmin's calendar date for the night ending on that date. Valid zero remains a contributor; missing stays null.
 

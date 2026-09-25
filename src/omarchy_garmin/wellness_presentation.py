@@ -21,7 +21,7 @@ from omarchy_garmin.wellness_database import (
     WellnessSourceFreshness,
 )
 
-WELLNESS_PRESENTATION_SCHEMA_VERSION = 1
+WELLNESS_PRESENTATION_SCHEMA_VERSION = 2
 MAX_WELLNESS_PRESENTATION_BYTES = 65_536
 WELLNESS_PERIODS = (("7Days", 7), ("30Days", 30))
 PARTIAL_CURRENT_DAY_SOURCES = ("steps", "bodyBattery")
@@ -111,6 +111,12 @@ class WellnessDayPresentation:
             "restingHeartRate": _group(
                 {"beatsPerMinute": day.resting_heart_rate_bpm},
             ),
+            "vo2Max": _group(
+                {
+                    "running": day.vo2_max_running,
+                    "cycling": day.vo2_max_cycling,
+                }
+            ),
         }
 
 
@@ -139,6 +145,8 @@ class WellnessContributorCounts:
     hrv_balanced_low_ms: int = 0
     hrv_balanced_upper_ms: int = 0
     resting_heart_rate_bpm: int = 0
+    vo2_max_running: int = 0
+    vo2_max_cycling: int = 0
 
     def to_payload(self) -> dict[str, object]:
         """Return contributor counts in the same semantic groups as daily values."""
@@ -171,6 +179,10 @@ class WellnessContributorCounts:
                 "balancedUpperMs": self.hrv_balanced_upper_ms,
             },
             "restingHeartRate": {"beatsPerMinute": self.resting_heart_rate_bpm},
+            "vo2Max": {
+                "running": self.vo2_max_running,
+                "cycling": self.vo2_max_cycling,
+            },
         }
 
 
@@ -242,6 +254,14 @@ def _optional_integer(value: object, minimum: int, maximum: int) -> int | None:
 
 
 def _optional_real(value: object) -> float | None:
+    return _optional_bounded_real(value, minimum=0, maximum=1_000)
+
+
+def _optional_vo2(value: object) -> float | None:
+    return _optional_bounded_real(value, minimum=10, maximum=100)
+
+
+def _optional_bounded_real(value: object, *, minimum: float, maximum: float) -> float | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -250,7 +270,7 @@ def _optional_real(value: object) -> float | None:
         result = float(value)
     except OverflowError as error:
         raise WellnessPresentationDataError("wellness number is invalid") from error
-    if not math.isfinite(result) or not 0 <= result <= 1_000:
+    if not math.isfinite(result) or not minimum <= result <= maximum:
         raise WellnessPresentationDataError("wellness number is invalid")
     return result
 
@@ -312,6 +332,8 @@ def _validated_day(day: DailyWellness) -> DailyWellness:
         hrv_balanced_low_ms=baseline_low,
         hrv_balanced_upper_ms=baseline_upper,
         resting_heart_rate_bpm=_optional_integer(day.resting_heart_rate_bpm, 20, 300),
+        vo2_max_running=_optional_vo2(day.vo2_max_running),
+        vo2_max_cycling=_optional_vo2(day.vo2_max_cycling),
     )
 
 
@@ -368,6 +390,7 @@ def _latest_value_date(source: WellnessSource, days: Sequence[DailyWellness]) ->
             "training_readiness_score",
             "training_readiness_level",
         ),
+        WellnessSource.VO2_MAX: ("vo2_max_running", "vo2_max_cycling"),
     }[source]
     matching = [
         day.calendar_date for day in days if any(getattr(day, name) is not None for name in names)

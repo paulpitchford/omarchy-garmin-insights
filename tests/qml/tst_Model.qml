@@ -22,7 +22,8 @@ TestCase {
       sleep: { score: 0, totalSeconds: 0, deepSeconds: 0, lightSeconds: 0, remSeconds: 0, awakeSeconds: 0 },
       trainingReadiness: { score: 0, level: 0 },
       hrv: { weeklyAverageMs: 0, lastNightAverageMs: 0, status: 0, balancedLowMs: 0, balancedUpperMs: 0 },
-      restingHeartRate: { beatsPerMinute: 0 }
+      restingHeartRate: { beatsPerMinute: 0 },
+      vo2Max: { running: 0, cycling: 0 }
     }
   }
 
@@ -38,15 +39,16 @@ TestCase {
         sleep: null,
         trainingReadiness: null,
         hrv: null,
-        restingHeartRate: null
+        restingHeartRate: null,
+        vo2Max: null
       })
     }
     var sourceKeys = [
       "user_summary", "steps", "body_battery", "sleep", "hrv",
-      "resting_heart_rate", "training_readiness"
+      "resting_heart_rate", "training_readiness", "vo2_max"
     ]
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       generatedAt: "2026-08-30T12:00:00Z",
       asOfLocalDate: "2026-08-30",
       collectionEnabled: true,

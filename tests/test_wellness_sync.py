@@ -198,6 +198,23 @@ class _FakeConnection(WellnessGatewayConnection):
             }
         ]
 
+    def max_metrics(self, start_date: date, end_date: date) -> object:
+        self._call("max_metrics", start_date, end_date)
+        return [
+            {
+                "generic": {
+                    "calendarDate": day.isoformat(),
+                    "vo2MaxPreciseValue": 49.5,
+                    "vo2MaxValue": 50,
+                    "fitnessAge": 34,
+                },
+                "cycling": None,
+                "userId": 1,
+                "heatAltitudeAcclimation": {"currentAltitude": 12},
+            }
+            for day in _dates(start_date, end_date)
+        ]
+
 
 class _FakeGateway:
     def __init__(
@@ -319,10 +336,10 @@ def test_initial_refresh_uses_exact_bounded_full_plan_and_precedence(tmp_path: P
     result = configured.service.refresh()
 
     assert result.full_reconciliation is True
-    assert result.request_attempts == 18
+    assert result.request_attempts == 19
     assert result.request_attempts <= 20
     connection = configured.gateway.connections[0]
-    assert len(connection.calls) == 17 == MAX_WELLNESS_DATA_CALLS - 1
+    assert len(connection.calls) == 18 == MAX_WELLNESS_DATA_CALLS
     assert [call for call in connection.calls if call[0] == "steps"] == [
         ("steps", date(2026, 7, 28), date(2026, 8, 24)),
         ("steps", date(2026, 8, 25), TODAY),
@@ -336,6 +353,7 @@ def test_initial_refresh_uses_exact_bounded_full_plan_and_precedence(tmp_path: P
     ]
     assert [call[0] for call in connection.calls].count("sleep_detail") == 2
     assert [call[0] for call in connection.calls].count("training_readiness") == 2
+    assert ("max_metrics", date(2026, 7, 28), TODAY) in connection.calls
     today = configured.repository.wellness_between(TODAY, TODAY)[0]
     assert today.steps == 9_999
     assert today.step_goal == 10_000
@@ -344,6 +362,8 @@ def test_initial_refresh_uses_exact_bounded_full_plan_and_precedence(tmp_path: P
     assert today.hrv_weekly_average_ms == 46
     assert today.body_battery_latest == 60
     assert today.training_readiness_score == 74
+    assert today.vo2_max_running == 49.5
+    assert today.vo2_max_cycling is None
     assert _source(result, WellnessSource.STEPS).stored_count == 30
     assert _source(result, WellnessSource.SLEEP).stored_count == 32
     assert configured.paths.token_file.read_bytes() == _token("refreshed")
@@ -400,12 +420,13 @@ def test_manual_refresh_bypasses_only_current_value_cadence(tmp_path: Path) -> N
     result = configured.service.refresh(manual=True)
 
     assert result.full_reconciliation is False
-    assert result.request_attempts == 5
+    assert result.request_attempts == 6
     assert [call[0] for call in configured.gateway.connections[-1].calls] == [
         "user_summary",
         "body_battery",
         "sleep_detail",
         "training_readiness",
+        "max_metrics",
     ]
 
 
@@ -719,3 +740,42 @@ def test_missing_runtime_and_malformed_cadence_fail_without_request(tmp_path: Pa
     no_runtime = WellnessSyncService(paths=paths, auth_store=store, gateway=_FakeGateway())
     with pytest.raises(WellnessSyncConfigurationError):
         no_runtime.refresh()
+
+
+def test_invalid_vo2_max_does_not_discard_other_source_successes(tmp_path: Path) -> None:
+    gateway = _FakeGateway(
+        failures={"max_metrics": InvalidWellnessDataError(WellnessSource.VO2_MAX)}
+    )
+    configured = _Configured(tmp_path, gateway)
+
+    result = configured.service.refresh()
+
+    assert _source(result, WellnessSource.VO2_MAX).failure is (
+        WellnessFailureClassification.INVALID_DATA
+    )
+    assert _source(result, WellnessSource.VO2_MAX).refreshed is False
+    assert _source(result, WellnessSource.STEPS).refreshed is True
+    assert _source(result, WellnessSource.TRAINING_READINESS).refreshed is True
+    stored = configured.repository.wellness_between(TODAY, TODAY)[0]
+    assert stored.steps == 9_999
+    assert stored.training_readiness_score == 74
+    assert stored.vo2_max_running is None
+    assert stored.vo2_max_cycling is None
+
+
+def test_missing_vo2_cadence_fills_retained_dates_after_historical_refresh(
+    tmp_path: Path,
+) -> None:
+    configured = _Configured(tmp_path)
+    configured.service.refresh()
+    with closing(sqlite3.connect(configured.paths.activity_database)) as connection:
+        connection.execute("DELETE FROM sync_state WHERE key = 'wellness_current_vo2_max_at'")
+        connection.commit()
+
+    result = configured.service.refresh()
+
+    calls = configured.gateway.connections[-1].calls
+    assert result.request_attempts == 2
+    assert calls == [("max_metrics", TODAY - timedelta(days=29), TODAY)]
+    assert _source(result, WellnessSource.STEPS).attempted is False
+    assert _source(result, WellnessSource.VO2_MAX).refreshed is True

@@ -20,6 +20,7 @@ from omarchy_garmin.wellness import (
     StepsDay,
     TrainingReadinessDay,
     UserSummaryDay,
+    Vo2MaxDay,
     WellnessSource,
 )
 from omarchy_garmin.wellness_database import (
@@ -102,6 +103,8 @@ def test_schema_one_migration_preserves_activity_rows_and_adds_only_reviewed_wel
     assert activity == ("101", "Fabricated run", "running", "2026-08-25")
     assert "body_battery_latest" in columns
     assert "training_readiness_score" in columns
+    assert "vo2_max_running" in columns
+    assert "vo2_max_cycling" in columns
     assert "body_battery_values_array" not in columns
     assert "timestamp_local" not in columns
     assert "input_context" not in columns
@@ -217,6 +220,12 @@ def test_all_approved_daily_scalars_merge_by_date_and_freshness_is_source_specif
         as_of_date=TODAY,
         refreshed_at=REFRESHED_AT,
     )
+    repository.upsert_source(
+        WellnessSource.VO2_MAX,
+        [Vo2MaxDay(day, 49.5, None)],
+        as_of_date=TODAY,
+        refreshed_at=REFRESHED_AT,
+    )
 
     stored = repository.wellness_between(day, day)
     freshness = repository.source_freshness()
@@ -243,6 +252,8 @@ def test_all_approved_daily_scalars_merge_by_date_and_freshness_is_source_specif
     assert stored[0].hrv_balanced_low_ms == 38.0
     assert stored[0].hrv_balanced_upper_ms == 55.0
     assert stored[0].resting_heart_rate_bpm == 51
+    assert stored[0].vo2_max_running == 49.5
+    assert stored[0].vo2_max_cycling is None
     assert {item.source for item in freshness} == set(WellnessSource)
     sleep_freshness = next(item for item in freshness if item.source is WellnessSource.SLEEP)
     assert sleep_freshness.refreshed_at == REFRESHED_AT + timedelta(minutes=2)
@@ -302,6 +313,7 @@ def test_cadence_attempt_metadata_is_private_selective_and_idempotent(tmp_path: 
         current_body_battery=False,
         current_sleep=False,
         current_training_readiness=False,
+        current_vo2_max=False,
     )
     repository.reserve_cadence(
         today=TODAY,
@@ -313,6 +325,7 @@ def test_cadence_attempt_metadata_is_private_selective_and_idempotent(tmp_path: 
         current_body_battery=True,
         current_sleep=True,
         current_training_readiness=True,
+        current_vo2_max=True,
     )
 
     assert repository.cadence_state() == WellnessCadenceState(
@@ -323,6 +336,7 @@ def test_cadence_attempt_metadata_is_private_selective_and_idempotent(tmp_path: 
         current_body_battery_at=REFRESHED_AT + timedelta(minutes=30),
         current_sleep_at=REFRESHED_AT + timedelta(minutes=30),
         current_training_readiness_at=REFRESHED_AT + timedelta(minutes=30),
+        current_vo2_max_at=REFRESHED_AT + timedelta(minutes=30),
     )
     assert repository.source_freshness() == []
 
@@ -355,6 +369,7 @@ def test_failed_cadence_reservation_rolls_back_every_attempt_group(tmp_path: Pat
             current_body_battery=True,
             current_sleep=True,
             current_training_readiness=True,
+            current_vo2_max=True,
         )
 
     assert repository.cadence_state() == WellnessCadenceState()
@@ -608,3 +623,66 @@ def test_invalid_source_day_sets_are_rejected_before_persistence(
         )
 
     assert (tmp_path / "private").exists() is False
+
+
+def test_schema_two_migration_adds_vo2_max_and_preserves_retained_scalars(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "private" / "activities.sqlite3"
+    database.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(database)) as connection:
+        connection.executescript(database_module._MIGRATION_1)
+        connection.executescript(database_module._MIGRATION_2)
+        connection.execute("PRAGMA user_version = 2")
+        connection.execute(
+            "INSERT INTO wellness_account_scope (singleton_id, account_fingerprint) VALUES (1, ?)",
+            (ACCOUNT_A,),
+        )
+        connection.execute(
+            """
+            INSERT INTO wellness_daily (account_fingerprint, calendar_date, steps)
+            VALUES (?, ?, ?)
+            """,
+            (ACCOUNT_A, TODAY.isoformat(), 4_200),
+        )
+        connection.execute(
+            """
+            INSERT INTO wellness_source_state (account_fingerprint, source, refreshed_at)
+            VALUES (?, 'steps', '2026-08-26T12:30:00+00:00')
+            """,
+            (ACCOUNT_A,),
+        )
+        connection.commit()
+
+    repository = WellnessRepository(database, ACCOUNT_A)
+    repository.upsert_source(
+        WellnessSource.VO2_MAX,
+        [Vo2MaxDay(TODAY, 48.2, None)],
+        as_of_date=TODAY,
+        refreshed_at=REFRESHED_AT,
+    )
+    repository.upsert_source(
+        WellnessSource.VO2_MAX,
+        [Vo2MaxDay(TODAY, None, 55.0)],
+        as_of_date=TODAY,
+        refreshed_at=REFRESHED_AT,
+    )
+
+    stored = repository.wellness_between(TODAY, TODAY)[0]
+    with closing(sqlite3.connect(database)) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        columns = [row[1] for row in connection.execute("PRAGMA table_info(wellness_daily)")]
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                UPDATE wellness_daily
+                SET vo2_max_running = 9.9
+                WHERE calendar_date = ?
+                """,
+                (TODAY.isoformat(),),
+            )
+    assert version == SCHEMA_VERSION
+    assert columns[-2:] == ["vo2_max_running", "vo2_max_cycling"]
+    assert stored.steps == 4_200
+    assert stored.vo2_max_running == 48.2
+    assert stored.vo2_max_cycling == 55.0

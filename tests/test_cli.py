@@ -836,7 +836,12 @@ def test_wellness_refresh_json_has_bounded_redacted_contract() -> None:
         "storedCount": 1,
         "failure": None,
     }
-    assert payload["data"]["sources"][-1]["failure"] == "unsupported"
+    assert payload["data"]["sources"][-1]["source"] == "vo2_max"
+    assert payload["data"]["sources"][-1]["failure"] is None
+    readiness = next(
+        item for item in payload["data"]["sources"] if item["source"] == "training_readiness"
+    )
+    assert readiness["failure"] == "unsupported"
 
 
 @pytest.mark.parametrize(

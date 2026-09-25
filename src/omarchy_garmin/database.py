@@ -22,7 +22,7 @@ from omarchy_garmin.storage import (
     private_file_exists,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class GarminDatabaseError(RuntimeError):
@@ -168,7 +168,30 @@ CREATE TABLE wellness_collection_state (
     CHECK (enabled IN (0, 1))
 ) STRICT, WITHOUT ROWID;
 """
-_MIGRATIONS = {1: _MIGRATION_1, 2: _MIGRATION_2}
+_MIGRATION_3 = """
+ALTER TABLE wellness_daily ADD COLUMN vo2_max_running REAL
+    CHECK (vo2_max_running IS NULL OR vo2_max_running BETWEEN 10 AND 100);
+ALTER TABLE wellness_daily ADD COLUMN vo2_max_cycling REAL
+    CHECK (vo2_max_cycling IS NULL OR vo2_max_cycling BETWEEN 10 AND 100);
+CREATE TABLE wellness_source_state_next (
+    account_fingerprint TEXT NOT NULL,
+    source TEXT NOT NULL,
+    refreshed_at TEXT NOT NULL,
+    PRIMARY KEY (account_fingerprint, source),
+    FOREIGN KEY (account_fingerprint)
+        REFERENCES wellness_account_scope(account_fingerprint) ON DELETE CASCADE,
+    CHECK (source IN (
+        'user_summary', 'steps', 'body_battery', 'sleep', 'hrv',
+        'resting_heart_rate', 'training_readiness', 'vo2_max'
+    )),
+    CHECK (length(refreshed_at) BETWEEN 19 AND 40)
+) STRICT, WITHOUT ROWID;
+INSERT INTO wellness_source_state_next (account_fingerprint, source, refreshed_at)
+SELECT account_fingerprint, source, refreshed_at FROM wellness_source_state;
+DROP TABLE wellness_source_state;
+ALTER TABLE wellness_source_state_next RENAME TO wellness_source_state;
+"""
+_MIGRATIONS = {1: _MIGRATION_1, 2: _MIGRATION_2, 3: _MIGRATION_3}
 
 _SCHEMA_1_COLUMNS = {
     "activities": (
@@ -223,6 +246,15 @@ _SCHEMA_2_COLUMNS = {
     "wellness_source_state": ("account_fingerprint", "source", "refreshed_at"),
     "wellness_collection_state": ("account_fingerprint", "enabled"),
 }
+_SCHEMA_3_COLUMNS = {
+    **_SCHEMA_2_COLUMNS,
+    "wellness_daily": (
+        *_SCHEMA_2_COLUMNS["wellness_daily"],
+        "vo2_max_running",
+        "vo2_max_cycling",
+    ),
+}
+_SCHEMA_COLUMNS = {1: _SCHEMA_1_COLUMNS, 2: _SCHEMA_2_COLUMNS, 3: _SCHEMA_3_COLUMNS}
 
 
 def _required_text(value: object) -> str:
@@ -384,7 +416,9 @@ class GarminDatabase:
 
     @staticmethod
     def _validate_schema(connection: sqlite3.Connection, version: int) -> None:
-        expected = _SCHEMA_1_COLUMNS if version == 1 else _SCHEMA_2_COLUMNS
+        expected = _SCHEMA_COLUMNS.get(version)
+        if expected is None:
+            raise GarminDatabaseError("Garmin database schema is malformed")
         tables = {
             str(row[0])
             for row in connection.execute(

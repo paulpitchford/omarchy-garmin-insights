@@ -18,6 +18,7 @@ from omarchy_garmin.wellness import (
     StepsDay,
     TrainingReadinessDay,
     UserSummaryDay,
+    Vo2MaxDay,
     WellnessSource,
 )
 
@@ -33,6 +34,8 @@ _MAX_SLEEP_SECONDS = 86_400
 _MAX_HRV_MS = 1_000.0
 _MIN_RESTING_HEART_RATE = 20
 _MAX_RESTING_HEART_RATE = 300
+_MIN_VO2_MAX = 10.0
+_MAX_VO2_MAX = 100.0
 _MAX_REMOTE_TEXT = 64
 _AFTER_WAKEUP_CONTEXT = "AFTER_WAKEUP_RESET"
 _MAX_TIMESTAMP_LENGTH = 40
@@ -508,3 +511,53 @@ def parse_training_readiness(
         return None
     score, level = selected
     return TrainingReadinessDay(requested_date, score, level)
+
+
+def _vo2_sport(
+    value: object,
+    source: WellnessSource,
+    start_date: date,
+    end_date: date,
+) -> tuple[date | None, float | None] | None:
+    if value is None:
+        return None
+    block = _mapping(value, source)
+    calendar_date = _calendar_date(block.get("calendarDate"), source, start_date, end_date)
+    precise = _optional_number(
+        block.get("vo2MaxPreciseValue"),
+        source,
+        minimum=_MIN_VO2_MAX,
+        maximum=_MAX_VO2_MAX,
+    )
+    return calendar_date, precise
+
+
+def parse_vo2_max(
+    payload: object,
+    start_date: date,
+    end_date: date,
+) -> tuple[Vo2MaxDay, ...]:
+    """Validate a max-metrics range and retain only running and cycling VO2 max."""
+    _validate_period(start_date, end_date)
+    source = WellnessSource.VO2_MAX
+    if payload is None:
+        return ()
+    rows = _bounded_list(payload, source, MAX_RANGE_ROWS)
+    result: list[Vo2MaxDay] = []
+    seen: set[date] = set()
+    for raw_row in rows:
+        row = _mapping(raw_row, source)
+        running = _vo2_sport(row.get("generic"), source, start_date, end_date)
+        cycling = _vo2_sport(row.get("cycling"), source, start_date, end_date)
+        if running is None and cycling is None:
+            continue
+        running_date, running_value = (None, None) if running is None else running
+        cycling_date, cycling_value = (None, None) if cycling is None else cycling
+        if running_date is not None and cycling_date is not None and running_date != cycling_date:
+            raise _invalid(source)
+        calendar_date = running_date or cycling_date
+        if calendar_date is None:
+            continue
+        _reject_duplicate(seen, calendar_date, source)
+        result.append(Vo2MaxDay(calendar_date, running_value, cycling_value))
+    return tuple(result)

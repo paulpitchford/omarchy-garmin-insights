@@ -386,6 +386,7 @@ def test_wellness_connection_uses_only_approved_methods_and_zero_dependency_retr
     garmin.get_hrv_data.return_value = None
     garmin.get_rhr_daily.return_value = []
     garmin.get_training_readiness.return_value = []
+    garmin.get_max_metrics_range.return_value = []
 
     with GarminWellnessGateway(sleeper=Mock()).connect(_token().encode()) as connection:
         assert connection.user_summary(date(2026, 8, 26)) == {"calendarDate": "2026-08-26"}
@@ -397,7 +398,8 @@ def test_wellness_connection_uses_only_approved_methods_and_zero_dependency_retr
         assert connection.hrv_detail(date(2026, 8, 26)) is None
         assert connection.resting_heart_rate(date(2026, 8, 1), date(2026, 8, 26)) == []
         assert connection.training_readiness(date(2026, 8, 26)) == []
-        assert connection.request_attempts == 10
+        assert connection.max_metrics(date(2026, 7, 28), date(2026, 8, 26)) == []
+        assert connection.request_attempts == 11
 
     garmin_constructor.assert_called_once_with(retry_attempts=0, verify_login=True)
     garmin.client.loads.assert_called_once_with(_token())
@@ -412,6 +414,7 @@ def test_wellness_connection_uses_only_approved_methods_and_zero_dependency_retr
     garmin.get_hrv_data.assert_called_once_with("2026-08-26")
     garmin.get_rhr_daily.assert_called_once_with("2026-08-01", "2026-08-26")
     garmin.get_training_readiness.assert_called_once_with("2026-08-26")
+    garmin.get_max_metrics_range.assert_called_once_with("2026-07-28", "2026-08-26")
 
 
 def test_wellness_retries_one_http_5xx_then_succeeds(garmin_constructor: Mock) -> None:

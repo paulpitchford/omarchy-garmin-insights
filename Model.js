@@ -6,11 +6,11 @@ var MAX_ACTIVITY_COUNT = 20000
 var MAX_TYPES = 256
 var ACTIVITY_TRENDS_SCHEMA_VERSION = 1
 var MAX_ACTIVITY_TRENDS_CHARS = 65536
-var WELLNESS_SCHEMA_VERSION = 1
+var WELLNESS_SCHEMA_VERSION = 2
 var MAX_WELLNESS_CHARS = 65536
 var WELLNESS_SOURCE_KEYS = [
   "user_summary", "steps", "body_battery", "sleep", "hrv",
-  "resting_heart_rate", "training_readiness"
+  "resting_heart_rate", "training_readiness", "vo2_max"
 ]
 var WELLNESS_FAILURE_KEYS = [
   "authentication", "rate_limit", "offline_transport", "remote_service",
@@ -305,7 +305,7 @@ function normalizeWellnessGroup(source, keys, limits, textKeys) {
 function normalizeWellnessDay(source, expectedDate) {
   if (!hasOnlyKeys(source, [
       "date", "steps", "bodyBattery", "sleep", "trainingReadiness", "hrv",
-      "restingHeartRate"
+      "restingHeartRate", "vo2Max"
     ]) || source.date !== expectedDate) return null
   var steps = normalizeWellnessGroup(source.steps, ["value", "goal"], {
     value: [0, 1000000, true], goal: [0, 1000000, true]
@@ -334,8 +334,12 @@ function normalizeWellnessDay(source, expectedDate) {
   var resting = normalizeWellnessGroup(source.restingHeartRate, ["beatsPerMinute"], {
     beatsPerMinute: [20, 300, true]
   }, [])
+  var vo2Max = normalizeWellnessGroup(source.vo2Max, ["running", "cycling"], {
+    running: [10, 100, false], cycling: [10, 100, false]
+  }, [])
   if (steps === undefined || bodyBattery === undefined || sleep === undefined
-      || readiness === undefined || hrv === undefined || resting === undefined) return null
+      || readiness === undefined || hrv === undefined || resting === undefined
+      || vo2Max === undefined) return null
   if (bodyBattery && bodyBattery.lowest !== null && bodyBattery.highest !== null
       && bodyBattery.lowest > bodyBattery.highest) return null
   if (sleep && Number(sleep.deepSeconds || 0) + Number(sleep.lightSeconds || 0)
@@ -349,7 +353,8 @@ function normalizeWellnessDay(source, expectedDate) {
     sleep: sleep,
     trainingReadiness: readiness,
     hrv: hrv,
-    restingHeartRate: resting
+    restingHeartRate: resting,
+    vo2Max: vo2Max
   }
 }
 
@@ -365,7 +370,8 @@ function normalizeWellnessCountGroup(source, keys, maximum) {
 
 function normalizeWellnessCounts(source, maximum) {
   if (!hasOnlyKeys(source, [
-      "steps", "bodyBattery", "sleep", "trainingReadiness", "hrv", "restingHeartRate"
+      "steps", "bodyBattery", "sleep", "trainingReadiness", "hrv", "restingHeartRate",
+      "vo2Max"
     ])) return null
   var result = {
     steps: normalizeWellnessCountGroup(source.steps, ["value", "goal"], maximum),
@@ -381,7 +387,8 @@ function normalizeWellnessCounts(source, maximum) {
       "weeklyAverageMs", "lastNightAverageMs", "status", "balancedLowMs", "balancedUpperMs"
     ], maximum),
     restingHeartRate: normalizeWellnessCountGroup(
-      source.restingHeartRate, ["beatsPerMinute"], maximum)
+      source.restingHeartRate, ["beatsPerMinute"], maximum),
+    vo2Max: normalizeWellnessCountGroup(source.vo2Max, ["running", "cycling"], maximum)
   }
   for (var key in result) if (!result[key]) return null
   return result
@@ -394,7 +401,8 @@ function wellnessCountsForDays(days, startIndex) {
     sleep: { score: 0, totalSeconds: 0, deepSeconds: 0, lightSeconds: 0, remSeconds: 0, awakeSeconds: 0 },
     trainingReadiness: { score: 0, level: 0 },
     hrv: { weeklyAverageMs: 0, lastNightAverageMs: 0, status: 0, balancedLowMs: 0, balancedUpperMs: 0 },
-    restingHeartRate: { beatsPerMinute: 0 }
+    restingHeartRate: { beatsPerMinute: 0 },
+    vo2Max: { running: 0, cycling: 0 }
   }
   for (var i = startIndex; i < days.length; i++) {
     var day = days[i]
@@ -417,6 +425,7 @@ function latestWellnessValueDate(source, days) {
     if (source === "hrv" && day.hrv !== null) return day.date
     if (source === "resting_heart_rate" && day.restingHeartRate !== null) return day.date
     if (source === "training_readiness" && day.trainingReadiness !== null) return day.date
+    if (source === "vo2_max" && day.vo2Max !== null) return day.date
   }
   return null
 }
@@ -547,6 +556,9 @@ function wellnessCategoryDefinition(key) {
     restingHeartRate: {
       label: "Resting heart rate", group: "restingHeartRate",
       sources: ["user_summary", "resting_heart_rate"]
+    },
+    vo2Max: {
+      label: "VO2 max", group: "vo2Max", sources: ["vo2_max"]
     }
   }
   return definitions[key] || null
@@ -1123,7 +1135,8 @@ function syntheticWellness(nowMs, requestedVariant) {
   for (var offset = 29; offset >= 0; offset--) {
     days.push({
       date: dateDaysAgo(generated, offset), steps: null, bodyBattery: null,
-      sleep: null, trainingReadiness: null, hrv: null, restingHeartRate: null
+      sleep: null, trainingReadiness: null, hrv: null, restingHeartRate: null,
+      vo2Max: null
     })
   }
 
@@ -1153,6 +1166,10 @@ function syntheticWellness(nowMs, requestedVariant) {
       status: "Synthetic balanced", balancedLowMs: 39, balancedUpperMs: 59
     }
     day.restingHeartRate = { beatsPerMinute: 51 + index % 8 }
+    day.vo2Max = {
+      running: 42 + index % 12,
+      cycling: index % 2 === 0 ? 50 + index % 8 : null
+    }
   }
 
   if (variant === "complete") {
