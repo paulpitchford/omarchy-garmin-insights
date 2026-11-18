@@ -52,6 +52,8 @@ def _complete_day(calendar_date: date = _AS_OF) -> DailyWellness:
         hrv_balanced_low_ms=40.0,
         hrv_balanced_upper_ms=60.0,
         resting_heart_rate_bpm=54,
+        vo2_max_running=49.5,
+        vo2_max_cycling=55.0,
     )
 
 
@@ -122,6 +124,7 @@ def test_contract_contains_only_fixed_daily_wellness_fields() -> None:
             "balancedUpperMs": 60.0,
         },
         "restingHeartRate": {"beatsPerMinute": 54},
+        "vo2Max": {"running": 49.5, "cycling": 55.0},
     }
     serialized = json.dumps(payload)
     assert "account" not in serialized.lower()
@@ -143,6 +146,7 @@ def test_missing_dates_are_explicit_null_points_not_zero_values() -> None:
         "trainingReadiness": None,
         "hrv": None,
         "restingHeartRate": None,
+        "vo2Max": None,
     }
     assert payload["periods"][0]["contributingDays"]["steps"] == {
         "value": 0,

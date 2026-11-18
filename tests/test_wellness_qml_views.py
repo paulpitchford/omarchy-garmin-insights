@@ -221,6 +221,9 @@ def test_wellness_remote_text_is_plain_and_wraps_in_constrained_cards() -> None:
 
     assert wellness.count("textFormat: Text.PlainText") >= 8
     assert wellness.count("wrapMode: Text.WordWrap") >= 12
+    assert 'title: "VO2 MAX"' in wellness
+    assert "day.vo2Max.running" in wellness
+    assert "day.vo2Max.cycling" in wellness
     assert "detailText: root.readinessDay && root.readinessDay.trainingReadiness.level" in wellness
     assert "if (hrv.status !== null) values.push(hrv.status)" in wellness
 

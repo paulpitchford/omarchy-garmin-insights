@@ -44,6 +44,7 @@ Column {
   readonly property var stepsDay: Model.latestWellnessDay(wellness, "steps")
   readonly property var hrvDay: Model.latestWellnessDay(wellness, "hrv")
   readonly property var restingDay: Model.latestWellnessDay(wellness, "restingHeartRate")
+  readonly property var vo2Day: Model.latestWellnessDay(wellness, "vo2Max")
   readonly property var unavailableCategories: unavailableCategoryRows()
 
   signal viewRequested(int index)
@@ -203,6 +204,25 @@ Column {
     return values.join(" · ")
   }
 
+  function vo2Text(value) {
+    return value === null || value === undefined ? "" : formatNumber(value, 1)
+  }
+
+  function vo2Value(day) {
+    if (!day || !day.vo2Max) return "Value unavailable"
+    if (day.vo2Max.running !== null) return vo2Text(day.vo2Max.running)
+    if (day.vo2Max.cycling !== null) return vo2Text(day.vo2Max.cycling)
+    return "Value unavailable"
+  }
+
+  function vo2Detail(day) {
+    if (!day || !day.vo2Max) return ""
+    var parts = []
+    if (day.vo2Max.running !== null) parts.push("Running " + vo2Text(day.vo2Max.running))
+    if (day.vo2Max.cycling !== null) parts.push("Cycling " + vo2Text(day.vo2Max.cycling))
+    return parts.join(" · ")
+  }
+
   function hrvContext(hrv) {
     if (!hrv || hrv.balancedLowMs === null || hrv.balancedUpperMs === null)
       return "Garmin balanced baseline unavailable"
@@ -217,7 +237,8 @@ Column {
       { key: "sleep", label: "Sleep", day: sleepDay },
       { key: "steps", label: "Steps", day: stepsDay },
       { key: "hrv", label: "HRV", day: hrvDay },
-      { key: "restingHeartRate", label: "Resting heart rate", day: restingDay }
+      { key: "restingHeartRate", label: "Resting heart rate", day: restingDay },
+      { key: "vo2Max", label: "VO2 max", day: vo2Day }
     ]
     var rows = []
     for (var index = 0; index < definitions.length; index++) {
@@ -412,6 +433,17 @@ Column {
         detailText: "Daily resting value"
         dateLabel: root.dateText(root.restingDay)
         source: root.sourceFor("restingHeartRate", root.restingDay)
+      }
+
+      TodayCard {
+        visible: root.vo2Day !== null
+        width: (secondaryCards.width - secondaryCards.columnSpacing
+          * (secondaryCards.columns - 1)) / secondaryCards.columns
+        title: "VO2 MAX"
+        valueText: root.vo2Value(root.vo2Day)
+        detailText: root.vo2Detail(root.vo2Day)
+        dateLabel: root.dateText(root.vo2Day)
+        source: root.sourceFor("vo2Max", root.vo2Day)
       }
     }
 

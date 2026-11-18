@@ -17,6 +17,7 @@ class WellnessSource(StrEnum):
     HRV = "hrv"
     RESTING_HEART_RATE = "resting_heart_rate"
     TRAINING_READINESS = "training_readiness"
+    VO2_MAX = "vo2_max"
 
 
 class WellnessFailureClassification(StrEnum):
@@ -134,6 +135,15 @@ class TrainingReadinessDay:
 
 
 @dataclass(frozen=True, slots=True)
+class Vo2MaxDay:
+    """Running and cycling VO2 max admitted from one max-metrics day."""
+
+    calendar_date: date
+    running: float | None
+    cycling: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class DailyWellness:
     """One normalized stored day containing only approved wellness scalars."""
 
@@ -159,6 +169,8 @@ class DailyWellness:
     hrv_balanced_low_ms: float | None = None
     hrv_balanced_upper_ms: float | None = None
     resting_heart_rate_bpm: int | None = None
+    vo2_max_running: float | None = None
+    vo2_max_cycling: float | None = None
 
 
 WellnessWriteDay = (
@@ -170,4 +182,5 @@ WellnessWriteDay = (
     | HrvDay
     | RestingHeartRateDay
     | TrainingReadinessDay
+    | Vo2MaxDay
 )

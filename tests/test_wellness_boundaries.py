@@ -25,6 +25,7 @@ from omarchy_garmin.wellness_boundaries import (
     parse_sleep_range,
     parse_training_readiness,
     parse_user_summary,
+    parse_vo2_max,
 )
 
 DAY = date(2026, 8, 25)
@@ -735,10 +736,152 @@ def test_excessive_training_readiness_snapshots_are_rejected() -> None:
 
 @pytest.mark.parametrize(
     "parser",
-    [parse_daily_steps, parse_sleep_range, parse_hrv_range, parse_resting_heart_rate],
+    [
+        parse_daily_steps,
+        parse_sleep_range,
+        parse_hrv_range,
+        parse_resting_heart_rate,
+        parse_vo2_max,
+    ],
 )
 def test_invalid_range_arguments_are_rejected(parser: Any) -> None:
     payload: object = {} if parser is parse_hrv_range else []
 
     with pytest.raises(ValueError, match="start_date"):
         parser(payload, END, START)
+
+
+def _vo2_sport(calendar_date: date, value: float | None) -> dict[str, Any]:
+    return {
+        "calendarDate": calendar_date.isoformat(),
+        "vo2MaxPreciseValue": value,
+        "vo2MaxValue": None if value is None else round(value),
+        "fitnessAge": 34,
+    }
+
+
+def _vo2_day(
+    calendar_date: date = DAY,
+    *,
+    running: float | None = 48.2,
+    cycling: float | None = 55.5,
+) -> dict[str, Any]:
+    return {
+        "generic": None if running is None else _vo2_sport(calendar_date, running),
+        "cycling": None if cycling is None else _vo2_sport(calendar_date, cycling),
+        "userId": 99,
+        "heatAltitudeAcclimation": {"currentAltitude": 12},
+    }
+
+
+def test_vo2_max_keeps_precise_running_and_cycling_values_only() -> None:
+    result = parse_vo2_max([_vo2_day()], DAY, DAY)
+
+    assert len(result) == 1
+    assert result[0].calendar_date == DAY
+    assert result[0].running == 48.2
+    assert result[0].cycling == 55.5
+    rendered = repr(result[0])
+    assert "userId" not in rendered
+    assert "heatAltitude" not in rendered
+    assert "fitnessAge" not in rendered
+    assert "vo2MaxValue" not in rendered
+
+
+def test_vo2_max_treats_null_cycling_and_rounded_value_as_absent() -> None:
+    precise = parse_vo2_max(
+        [
+            {
+                "generic": {
+                    "calendarDate": DAY.isoformat(),
+                    "vo2MaxPreciseValue": 47.0,
+                    "vo2MaxValue": 51,
+                },
+                "cycling": None,
+            }
+        ],
+        START,
+        END,
+    )
+    missing_precise = parse_vo2_max(
+        [
+            {
+                "generic": {
+                    "calendarDate": DAY.isoformat(),
+                    "vo2MaxPreciseValue": None,
+                    "vo2MaxValue": 48,
+                },
+                "cycling": {"calendarDate": DAY.isoformat(), "vo2MaxPreciseValue": 52.0},
+            }
+        ],
+        START,
+        END,
+    )
+
+    assert precise[0].running == 47.0
+    assert precise[0].cycling is None
+    assert missing_precise[0].running is None
+    assert missing_precise[0].cycling == 52.0
+
+
+def test_empty_vo2_max_range_is_missing() -> None:
+    assert parse_vo2_max(None, START, END) == ()
+    assert parse_vo2_max([], START, END) == ()
+
+
+def test_vo2_max_skips_a_day_without_an_admitted_sport_date() -> None:
+    assert parse_vo2_max([{"generic": None, "cycling": None, "userId": 4}], START, END) == ()
+    assert (
+        parse_vo2_max(
+            [
+                {
+                    "generic": {"calendarDate": None, "vo2MaxPreciseValue": None},
+                    "cycling": None,
+                }
+            ],
+            START,
+            END,
+        )
+        == ()
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param({}, id="not-list"),
+        pytest.param([[]], id="row-not-object"),
+        pytest.param(
+            [{"generic": {"calendarDate": DAY.isoformat(), "vo2MaxPreciseValue": True}}],
+            id="boolean",
+        ),
+        pytest.param(
+            [{"generic": {"calendarDate": DAY.isoformat(), "vo2MaxPreciseValue": 9.9}}],
+            id="below-range",
+        ),
+        pytest.param(
+            [{"generic": {"calendarDate": DAY.isoformat(), "vo2MaxPreciseValue": 100.1}}],
+            id="above-range",
+        ),
+        pytest.param([_vo2_day(), _vo2_day()], id="duplicate"),
+        pytest.param(
+            [
+                {
+                    "generic": {"calendarDate": DAY.isoformat(), "vo2MaxPreciseValue": 48.0},
+                    "cycling": {
+                        "calendarDate": (DAY + timedelta(days=1)).isoformat(),
+                        "vo2MaxPreciseValue": 55.0,
+                    },
+                }
+            ],
+            id="sport-date-mismatch",
+        ),
+        pytest.param([{}] * (MAX_RANGE_ROWS + 1), id="excessive"),
+    ],
+)
+def test_malformed_vo2_max_range_is_rejected(payload: object) -> None:
+    with pytest.raises(InvalidWellnessDataError) as caught:
+        parse_vo2_max(payload, START, END)
+
+    assert "99" not in str(caught.value)
+    assert caught.value.source is WellnessSource.VO2_MAX

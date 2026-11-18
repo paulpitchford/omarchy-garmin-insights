@@ -39,6 +39,7 @@ from omarchy_garmin.wellness_boundaries import (
     parse_sleep_range,
     parse_training_readiness,
     parse_user_summary,
+    parse_vo2_max,
 )
 from omarchy_garmin.wellness_database import (
     WELLNESS_RETENTION_DAYS,
@@ -165,6 +166,7 @@ class WellnessRepositoryOperations(Protocol):
         current_body_battery: bool,
         current_sleep: bool,
         current_training_readiness: bool,
+        current_vo2_max: bool,
     ) -> None:
         """Record planned groups before making their first data request."""
         ...
@@ -247,6 +249,10 @@ class WellnessGatewayConnection(Protocol):
         """Fetch one Training Readiness date."""
         ...
 
+    def max_metrics(self, start_date: date, end_date: date) -> object:
+        """Fetch one max-metrics range containing VO2 max."""
+        ...
+
 
 class WellnessGateway(Protocol):
     """Open one bounded, verified external Garmin wellness connection."""
@@ -269,6 +275,7 @@ class WellnessRefreshPlan:
     backfill: bool
     sleep_dates: tuple[date, ...]
     training_readiness_dates: tuple[date, ...]
+    vo2_max_start: date | None
 
     @property
     def historical(self) -> bool:
@@ -285,6 +292,7 @@ class WellnessRefreshPlan:
                 self.current_body_battery and not self.historical,
                 bool(self.sleep_dates),
                 bool(self.training_readiness_dates),
+                self.vo2_max_start is not None,
             )
         )
 
@@ -301,6 +309,8 @@ class WellnessRefreshPlan:
             calls += _chunk_count(days, 7)  # Body Battery
             calls += _chunk_count(days, 28)  # Sleep range
             calls += 3  # HRV range, HRV detail, and resting heart rate
+        if self.vo2_max_start is not None:
+            calls += 1
         return calls
 
 
@@ -382,6 +392,24 @@ def _missing_training_readiness(day: DailyWellness | None) -> bool:
     )
 
 
+def _vo2_max_start(
+    *,
+    today: date,
+    now: datetime,
+    manual: bool,
+    cadence: WellnessCadenceState,
+    historical_start: date | None,
+) -> date | None:
+    """Choose one max-metrics window, using the same dates as range reconciliation."""
+    if historical_start is not None:
+        return historical_start
+    if cadence.current_vo2_max_at is None and cadence.historical_date == today:
+        return today - timedelta(days=WELLNESS_RETENTION_DAYS - 1)
+    if manual or _due(cadence.current_vo2_max_at, now, CURRENT_SLOW_INTERVAL):
+        return today
+    return None
+
+
 def _bounded_targets(
     *,
     today: date,
@@ -447,6 +475,13 @@ def build_refresh_plan(
         stored=stored,
         missing=_missing_training_readiness,
     )
+    vo2_start = _vo2_max_start(
+        today=today,
+        now=now,
+        manual=manual,
+        cadence=cadence,
+        historical_start=historical_start,
+    )
     if len(sleep_dates) + len(readiness_dates) > MAX_SINGLE_DATE_BACKFILL_CALLS:
         raise WellnessSyncConfigurationError("wellness single-date request plan is excessive")
     plan = WellnessRefreshPlan(
@@ -459,6 +494,7 @@ def build_refresh_plan(
         backfill=sleep_backfill or readiness_backfill,
         sleep_dates=sleep_dates,
         training_readiness_dates=readiness_dates,
+        vo2_max_start=vo2_start,
     )
     if plan.data_call_count(today) > MAX_WELLNESS_DATA_CALLS:
         raise WellnessSyncConfigurationError("wellness data request plan is excessive")
@@ -584,6 +620,7 @@ class WellnessSyncService:
                     current_body_battery=plan.current_body_battery,
                     current_sleep=plan.current_sleep,
                     current_training_readiness=plan.current_training_readiness,
+                    current_vo2_max=plan.vo2_max_start is not None,
                 )
             except WellnessAccountMismatchError as error:
                 raise WellnessAccountScopeError(
@@ -740,6 +777,19 @@ class WellnessSyncService:
             ):
                 return True
 
+        return self._run_dated_metrics(
+            connection, repository, plan, today, refreshed_at, accumulators
+        )
+
+    def _run_dated_metrics(
+        self,
+        connection: WellnessGatewayConnection,
+        repository: WellnessRepositoryOperations,
+        plan: WellnessRefreshPlan,
+        today: date,
+        refreshed_at: datetime,
+        accumulators: dict[WellnessSource, _SourceAccumulator],
+    ) -> bool:
         for requested_date in plan.training_readiness_dates:
             if self._run_source(
                 WellnessSource.TRAINING_READINESS,
@@ -750,7 +800,16 @@ class WellnessSyncService:
                 accumulators,
             ):
                 return True
-        return False
+        if plan.vo2_max_start is None:
+            return False
+        return self._run_source(
+            WellnessSource.VO2_MAX,
+            partial(self._load_vo2_max, connection, plan.vo2_max_start, today),
+            repository,
+            today,
+            refreshed_at,
+            accumulators,
+        )
 
     @classmethod
     def _load_sleep_detail(
@@ -771,6 +830,14 @@ class WellnessSyncService:
         return cls._optional_day(
             parse_training_readiness(connection.training_readiness(requested_date), requested_date)
         )
+
+    @staticmethod
+    def _load_vo2_max(
+        connection: WellnessGatewayConnection,
+        start_date: date,
+        end_date: date,
+    ) -> tuple[WellnessWriteDay, ...]:
+        return parse_vo2_max(connection.max_metrics(start_date, end_date), start_date, end_date)
 
     @staticmethod
     def _optional_day(day: WellnessWriteDay | None) -> tuple[WellnessWriteDay, ...]:

@@ -22,6 +22,7 @@ from omarchy_garmin.wellness import (
     StepsDay,
     TrainingReadinessDay,
     UserSummaryDay,
+    Vo2MaxDay,
     WellnessSource,
     WellnessWriteDay,
 )
@@ -65,6 +66,7 @@ class WellnessCadenceState:
     current_body_battery_at: datetime | None = None
     current_sleep_at: datetime | None = None
     current_training_readiness_at: datetime | None = None
+    current_vo2_max_at: datetime | None = None
 
 
 _CADENCE_KEYS = {
@@ -75,6 +77,7 @@ _CADENCE_KEYS = {
     "wellness_current_body_battery_at": "current_body_battery_at",
     "wellness_current_sleep_at": "current_sleep_at",
     "wellness_current_training_readiness_at": "current_training_readiness_at",
+    "wellness_current_vo2_max_at": "current_vo2_max_at",
 }
 _DATE_CADENCE_KEYS = {
     "wellness_historical_date",
@@ -106,8 +109,10 @@ INSERT INTO wellness_daily (
     hrv_status,
     hrv_balanced_low_ms,
     hrv_balanced_upper_ms,
-    resting_heart_rate_bpm
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    resting_heart_rate_bpm,
+    vo2_max_running,
+    vo2_max_cycling
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(account_fingerprint, calendar_date) DO UPDATE SET
     steps = coalesce(excluded.steps, wellness_daily.steps),
     step_goal = coalesce(excluded.step_goal, wellness_daily.step_goal),
@@ -161,7 +166,9 @@ ON CONFLICT(account_fingerprint, calendar_date) DO UPDATE SET
     ),
     resting_heart_rate_bpm = coalesce(
         excluded.resting_heart_rate_bpm, wellness_daily.resting_heart_rate_bpm
-    )
+    ),
+    vo2_max_running = coalesce(excluded.vo2_max_running, wellness_daily.vo2_max_running),
+    vo2_max_cycling = coalesce(excluded.vo2_max_cycling, wellness_daily.vo2_max_cycling)
 """
 
 
@@ -192,6 +199,14 @@ def _optional_integer(value: object, *, minimum: int, maximum: int) -> int | Non
 
 
 def _optional_real(value: object) -> float | None:
+    return _optional_bounded_real(value, minimum=0, maximum=1_000)
+
+
+def _optional_vo2(value: object) -> float | None:
+    return _optional_bounded_real(value, minimum=10, maximum=100)
+
+
+def _optional_bounded_real(value: object, *, minimum: float, maximum: float) -> float | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -200,7 +215,7 @@ def _optional_real(value: object) -> float | None:
         result = float(value)
     except OverflowError as error:
         raise ValueError("wellness number is invalid") from error
-    if not math.isfinite(result) or not 0 <= result <= 1_000:
+    if not math.isfinite(result) or not minimum <= result <= maximum:
         raise ValueError("wellness number is invalid")
     return result
 
@@ -297,13 +312,30 @@ def _daily_for_source(source: WellnessSource, day: WellnessWriteDay) -> DailyWel
             calendar_date=calendar_date,
             resting_heart_rate_bpm=_optional_integer(day.beats_per_minute, minimum=20, maximum=300),
         )
+    metric = _daily_for_metric(source, day, calendar_date)
+    if metric is not None:
+        return metric
+    raise ValueError("wellness source does not match the supplied domain values")
+
+
+def _daily_for_metric(
+    source: WellnessSource,
+    day: WellnessWriteDay,
+    calendar_date: date,
+) -> DailyWellness | None:
     if source is WellnessSource.TRAINING_READINESS and isinstance(day, TrainingReadinessDay):
         return DailyWellness(
             calendar_date=calendar_date,
             training_readiness_score=_optional_integer(day.score, minimum=0, maximum=100),
             training_readiness_level=_optional_text(day.level),
         )
-    raise ValueError("wellness source does not match the supplied domain values")
+    if source is WellnessSource.VO2_MAX and isinstance(day, Vo2MaxDay):
+        return DailyWellness(
+            calendar_date=calendar_date,
+            vo2_max_running=_optional_vo2(day.running),
+            vo2_max_cycling=_optional_vo2(day.cycling),
+        )
+    return None
 
 
 def _validated_daily(day: DailyWellness) -> DailyWellness:
@@ -352,6 +384,8 @@ def _validated_daily(day: DailyWellness) -> DailyWellness:
         resting_heart_rate_bpm=_optional_integer(
             day.resting_heart_rate_bpm, minimum=20, maximum=300
         ),
+        vo2_max_running=_optional_vo2(day.vo2_max_running),
+        vo2_max_cycling=_optional_vo2(day.vo2_max_cycling),
     )
 
 
@@ -456,7 +490,9 @@ class WellnessRepository:
                     hrv_status,
                     hrv_balanced_low_ms,
                     hrv_balanced_upper_ms,
-                    resting_heart_rate_bpm
+                    resting_heart_rate_bpm,
+                    vo2_max_running,
+                    vo2_max_cycling
                 FROM wellness_daily
                 WHERE account_fingerprint = ? AND calendar_date BETWEEN ? AND ?
                 ORDER BY calendar_date
@@ -514,7 +550,7 @@ class WellnessRepository:
             rows = connection.execute(
                 """
                 SELECT key, value FROM sync_state
-                WHERE key IN (?, ?, ?, ?, ?, ?, ?)
+                WHERE key IN (?, ?, ?, ?, ?, ?, ?, ?)
                 ORDER BY key
                 """,
                 tuple(_CADENCE_KEYS),
@@ -550,6 +586,7 @@ class WellnessRepository:
         current_body_battery: bool,
         current_sleep: bool,
         current_training_readiness: bool,
+        current_vo2_max: bool,
     ) -> None:
         """Record planned request groups atomically before their first data call."""
         if type(today) is not date:
@@ -569,6 +606,7 @@ class WellnessRepository:
             "wellness_current_training_readiness_at": (
                 attempted_at_text if current_training_readiness else None
             ),
+            "wellness_current_vo2_max_at": attempted_at_text if current_vo2_max else None,
         }
         selected = tuple((key, value) for key, value in updates.items() if value is not None)
         if not selected:
@@ -670,7 +708,7 @@ class WellnessRepository:
 
     @staticmethod
     def _read_row(row: Sequence[object]) -> DailyWellness:
-        if len(row) != 22:
+        if len(row) != 24:
             raise ValueError("stored wellness row has an unexpected shape")
         calendar_date = date.fromisoformat(str(row[0]))
         return _validated_daily(DailyWellness(calendar_date, *row[1:]))  # type: ignore[arg-type]
