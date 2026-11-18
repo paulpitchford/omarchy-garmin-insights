@@ -25,7 +25,8 @@
       "units": "auto",
       "refreshMinutes": 30,
       "checkForUpdates": true,
-      "demoMode": false
+      "demoMode": false,
+      "defaultTab": "overview"
     },
     "schema": [
       {
@@ -62,6 +63,13 @@
         "type": "boolean",
         "label": "Use synthetic demo data",
         "defaultValue": false
+      },
+      {
+        "key": "defaultTab",
+        "type": "enum",
+        "label": "Open panel on",
+        "options": ["overview", "wellness", "activities"],
+        "defaultValue": "overview"
       }
     ]
   }

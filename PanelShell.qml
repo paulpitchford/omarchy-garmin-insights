@@ -254,9 +254,9 @@ Panel {
   }
 
   onOpenedChanged: if (opened) {
-    session.beginSession()
+    session.beginSession(setting("defaultTab", "overview"))
     activitiesPage.resetForSession(setting("period", "7Days"))
-    navCursorIndex = 0
+    navCursorIndex = session.modeIndex
     focusArea = "nav"
     cursorActive = false
     pagePointerGate.reset()

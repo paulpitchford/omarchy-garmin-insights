@@ -44,3 +44,19 @@ def test_update_checks_are_an_explicit_default_enabled_boolean_setting() -> None
         "label": "Check for updates",
         "defaultValue": True,
     }
+
+
+def test_default_tab_is_an_overview_default_enum_without_settings() -> None:
+    manifest = load_manifest()
+    bar_widget = cast(dict[str, object], manifest["barWidget"])
+    defaults = cast(dict[str, object], bar_widget["defaults"])
+    schema = cast(list[dict[str, object]], bar_widget["schema"])
+
+    assert defaults["defaultTab"] == "overview"
+    assert schema[-1] == {
+        "key": "defaultTab",
+        "type": "enum",
+        "label": "Open panel on",
+        "options": ["overview", "wellness", "activities"],
+        "defaultValue": "overview",
+    }
