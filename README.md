@@ -28,7 +28,7 @@ Garmin Insights is an independent, unofficial project. It is not affiliated with
 
 ## The panel
 
-The panel opens on Overview and keeps Activities and Wellness separate. Each domain has its own freshness and failure state, so a failed wellness source does not hide a successful activity refresh.
+The panel opens on Overview unless the `defaultTab` setting selects Wellness or Activities, and keeps Activities and Wellness separate. Each domain has its own freshness and failure state, so a failed wellness source does not hide a successful activity refresh.
 
 ### Wellness Today and Trends
 
@@ -195,7 +195,7 @@ The header and footer remain visible when a page scrolls. Wellness and Activitie
 
 ## Settings
 
-Settings can be changed in the panel, through Omarchy's bar settings, or with `omarchy bar set`.
+Settings can be changed through Omarchy's bar settings or with `omarchy bar set`. The panel's Settings page also changes units, the refresh interval, and update checks.
 
 | Setting | Values | Default | Purpose |
 |---|---|---:|---|
@@ -204,12 +204,14 @@ Settings can be changed in the panel, through Omarchy's bar settings, or with `o
 | `refreshMinutes` | 5 to 360 | 30 | Activity refresh interval |
 | `checkForUpdates` | `true`, `false` | `true` | Fixed public Git update check |
 | `demoMode` | `true`, `false` | `false` | Fabricated offline interface |
+| `defaultTab` | `overview`, `wellness`, `activities` | `overview` | Page shown each time the panel opens |
 
 ```bash
 omarchy bar set io.github.paulpitchford.garmin-insights period 30Days
 omarchy bar set io.github.paulpitchford.garmin-insights units metric
 omarchy bar set io.github.paulpitchford.garmin-insights refreshMinutes 60 --json
 omarchy bar set io.github.paulpitchford.garmin-insights checkForUpdates false --json
+omarchy bar set io.github.paulpitchford.garmin-insights defaultTab wellness
 ```
 
 Wellness collection is controlled separately under Settings. Stopping it prevents every future wellness request while retaining stored rows and display data. Re-enabling it starts a bounded refresh without bypassing historical reconciliation or backfill cooldowns.

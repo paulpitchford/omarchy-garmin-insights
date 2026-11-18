@@ -54,7 +54,8 @@ def test_phase_six_shell_contains_the_accepted_navigation_and_pages() -> None:
     assert "WellnessShellPage {" in shell
     assert "ActivitiesView {" in shell
     assert "SettingsView {" in shell
-    assert "session.beginSession()" in shell
+    assert 'session.beginSession(setting("defaultTab", "overview"))' in shell
+    assert "navCursorIndex = session.modeIndex" in shell
     assert "scrollPositions[session.pageKey]" in shell
     assert "saveScroll()" in shell
     assert "restoreScroll()" in shell

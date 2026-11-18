@@ -4,6 +4,7 @@ QtObject {
   id: root
 
   readonly property var modeNames: ["Overview", "Wellness", "Activities", "Settings"]
+  readonly property var defaultTabKeys: ["overview", "wellness", "activities"]
   property int modeIndex: 0
   property int wellnessViewIndex: 0
   property string activityViewMode: "summary"
@@ -13,8 +14,13 @@ QtObject {
   readonly property string pageKey: String(modeIndex) + ":" + String(wellnessViewIndex)
     + ":" + activityViewMode + ":" + settingsViewMode
 
-  function beginSession() {
-    modeIndex = 0
+  function modeIndexForDefaultTab(defaultTab) {
+    var index = typeof defaultTab === "string" ? defaultTabKeys.indexOf(defaultTab) : -1
+    return index === -1 ? 0 : index
+  }
+
+  function beginSession(defaultTab) {
+    modeIndex = modeIndexForDefaultTab(defaultTab)
     wellnessViewIndex = 0
     activityViewMode = "summary"
     settingsViewMode = "main"

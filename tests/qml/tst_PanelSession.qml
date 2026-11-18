@@ -31,6 +31,34 @@ TestCase {
     compare(session.confirmationKind, "")
   }
 
+  function test_session_opens_on_the_configured_default_tab_data() {
+    return [
+      { tag: "overview", value: "overview", expected: 0 },
+      { tag: "wellness", value: "wellness", expected: 1 },
+      { tag: "activities", value: "activities", expected: 2 },
+      { tag: "settings-is-not-a-landing-page", value: "settings", expected: 0 },
+      { tag: "unknown", value: "remote-url", expected: 0 },
+      { tag: "wrong-case", value: "Wellness", expected: 0 },
+      { tag: "empty", value: "", expected: 0 },
+      { tag: "number", value: 1, expected: 0 },
+      { tag: "null", value: null, expected: 0 },
+      { tag: "undefined", value: undefined, expected: 0 }
+    ]
+  }
+
+  function test_session_opens_on_the_configured_default_tab(data) {
+    var session = createSession()
+    session.modeIndex = 3
+    session.wellnessViewIndex = 1
+    session.confirmationKind = "purge"
+
+    session.beginSession(data.value)
+
+    compare(session.modeIndex, data.expected)
+    compare(session.wellnessViewIndex, 0)
+    compare(session.confirmationKind, "")
+  }
+
   function test_nested_selection_survives_top_level_switches() {
     var session = createSession()
     session.setWellnessView(1)
