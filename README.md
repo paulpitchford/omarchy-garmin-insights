@@ -532,7 +532,7 @@ The service uses fixed executable paths and direct argument arrays:
 - `/usr/bin/env` sets only `UV_PROJECT_ENVIRONMENT` for backend processes.
 - The selected `uv` runs `run --locked --no-sync omarchy-garmin-insights` for authentication status, sequential Activity and Wellness refreshes, confirmed collection, logout, and purge actions, fixed-kind cache reads, and bounded Activity list and detail reads.
 - `/usr/bin/xdg-open` opens the installed local `README.md` from **Help and privacy**.
-- `/usr/share/omarchy/bin/omarchy-launch-terminal` opens visible setup, login, and update-review terminals.
+- `/usr/share/omarchy/bin/omarchy-launch-floating-terminal-with-presentation` opens visible setup, login, and update-review terminals.
 - Setup runs `uv sync --locked --no-dev`.
 - Login runs `uv run --locked --no-sync omarchy-garmin-insights auth login`.
 - Update review runs `/usr/bin/omarchy plugin update io.github.paulpitchford.garmin-insights` without `--yes`.

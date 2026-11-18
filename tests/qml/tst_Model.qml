@@ -678,12 +678,40 @@ TestCase {
     compare(Model.safeVersion("0.1.0"), "0.1.0")
     compare(Model.safeVersion("<b>hostile</b>"), "Unknown")
     compare(Model.updateReviewCommand(), [
-      "/usr/share/omarchy/bin/omarchy-launch-terminal",
-      "/usr/bin/omarchy",
-      "plugin",
-      "update",
-      "io.github.paulpitchford.garmin-insights"
+      "/usr/share/omarchy/bin/omarchy-launch-floating-terminal-with-presentation",
+      "'/usr/bin/omarchy' 'plugin' 'update' 'io.github.paulpitchford.garmin-insights'"
     ])
+  }
+
+  function test_plugin_source_dir_survives_stripped_third_party_manifest() {
+    var expected = "/home/synthetic/.config/omarchy/plugins/io.github.paulpitchford.garmin-insights"
+    var resolved = "file://" + expected + "/"
+
+    compare(Model.pluginSourceDir("", resolved, expected), expected)
+    compare(Model.pluginSourceDir("", "", expected), expected)
+    compare(Model.pluginSourceDir("/injected/plugin", resolved, expected), "/injected/plugin")
+    compare(Model.pluginSourceDir("relative", "https://hostile.example/plugin", ""), "")
+    compare(Model.pluginSourceDir("/tmp/../etc", "", expected), expected)
+    compare(Model.fileUrlToPath("file:///home/synthetic/plugin%20dir"), "/home/synthetic/plugin dir")
+  }
+
+  function test_visible_setup_and_login_commands_use_the_floating_terminal() {
+    var setup = Model.setupCommand(
+      "/usr/bin/uv",
+      "/synthetic/plugin",
+      "/synthetic/cache/environment"
+    )
+    var login = Model.loginCommand(
+      "/usr/bin/uv",
+      "/synthetic/plugin",
+      "/synthetic/cache/environment"
+    )
+
+    compare(setup[0], "/usr/share/omarchy/bin/omarchy-launch-floating-terminal-with-presentation")
+    compare(login[0], "/usr/share/omarchy/bin/omarchy-launch-floating-terminal-with-presentation")
+    compare(setup[1], "'/usr/bin/env' 'UV_PROJECT_ENVIRONMENT=/synthetic/cache/environment' '/usr/bin/uv' '--directory' '/synthetic/plugin' 'sync' '--locked' '--no-dev'")
+    compare(login[1], "'/usr/bin/env' 'UV_PROJECT_ENVIRONMENT=/synthetic/cache/environment' '/usr/bin/uv' '--directory' '/synthetic/plugin' 'run' '--locked' '--no-sync' 'omarchy-garmin-insights' 'auth' 'login'")
+    compare(Model.shellQuote("it's"), "'it'\\''s'")
   }
 
   function test_synthetic_activity_counts_match_summary_periods() {
