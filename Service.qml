@@ -71,15 +71,19 @@ Item {
   property int recoveryRetryCount: 0
   property double recoveryHeartbeatMs: Date.now()
 
-  readonly property string sourceDir: manifest && manifest.__sourceDir ? String(manifest.__sourceDir) : ""
   readonly property string homeDir: Quickshell.env("HOME")
+  readonly property string expectedInstallDir: homeDir
+    + "/.config/omarchy/plugins/io.github.paulpitchford.garmin-insights"
+  readonly property string sourceDir: Model.pluginSourceDir(
+    manifest && manifest.__sourceDir ? manifest.__sourceDir : "",
+    Qt.resolvedUrl("."),
+    expectedInstallDir
+  )
   readonly property string cacheRoot: absoluteEnvironmentPath("XDG_CACHE_HOME", homeDir + "/.cache")
   readonly property string applicationCacheRoot: cacheRoot + "/omarchy-garmin-insights"
   readonly property string runtimeRoot: absoluteEnvironmentPath("XDG_RUNTIME_DIR", "")
   readonly property string applicationRuntimeRoot: runtimeRoot === ""
     ? "" : runtimeRoot + "/omarchy-garmin-insights"
-  readonly property string expectedInstallDir: homeDir
-    + "/.config/omarchy/plugins/io.github.paulpitchford.garmin-insights"
   readonly property string updateHelperPath: sourceDir + "/src/omarchy_garmin/update_helper.py"
   readonly property string installedVersion: Model.safeVersion(
     manifest && manifest.version ? manifest.version : "")
@@ -985,13 +989,7 @@ Item {
       prepareCacheRoot()
       return
     }
-    Quickshell.execDetached([
-      "/usr/share/omarchy/bin/omarchy-launch-terminal",
-      "/usr/bin/env", "UV_PROJECT_ENVIRONMENT=" + pythonEnvironmentPath,
-      uvPath,
-      "--directory", sourceDir,
-      "sync", "--locked", "--no-dev"
-    ])
+    Quickshell.execDetached(Model.setupCommand(uvPath, sourceDir, pythonEnvironmentPath))
     authPollTicks = 0
     authPollTimer.start()
   }
@@ -1001,14 +999,7 @@ Item {
       prepareCacheRoot()
       return
     }
-    Quickshell.execDetached([
-      "/usr/share/omarchy/bin/omarchy-launch-terminal",
-      "/usr/bin/env", "UV_PROJECT_ENVIRONMENT=" + pythonEnvironmentPath,
-      uvPath,
-      "--directory", sourceDir,
-      "run", "--locked", "--no-sync",
-      "omarchy-garmin-insights", "auth", "login"
-    ])
+    Quickshell.execDetached(Model.loginCommand(uvPath, sourceDir, pythonEnvironmentPath))
     authPollTicks = 0
     authPollTimer.start()
   }

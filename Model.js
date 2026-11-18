@@ -986,11 +986,83 @@ function safeVersion(value) {
     ? text : "Unknown"
 }
 
-function updateReviewCommand() {
+function absoluteDirectory(path) {
+  var text = String(path || "")
+  if (text.charAt(0) !== "/") return ""
+  if (text.indexOf("\0") !== -1 || text.indexOf("\n") !== -1) return ""
+  if (text.length > 1 && text.charAt(text.length - 1) === "/")
+    text = text.substring(0, text.length - 1)
+  var parts = text.split("/")
+  for (var i = 0; i < parts.length; i++)
+    if (parts[i] === "." || parts[i] === "..") return ""
+  return text
+}
+
+function fileUrlToPath(url) {
+  var text = String(url || "")
+  if (text.indexOf("file://") !== 0) return ""
+  var rest = text.substring(7)
+  var query = rest.indexOf("?")
+  if (query !== -1) rest = rest.substring(0, query)
+  var hash = rest.indexOf("#")
+  if (hash !== -1) rest = rest.substring(0, hash)
+  if (rest.charAt(0) !== "/") return ""
+  try {
+    rest = decodeURIComponent(rest)
+  } catch (error) {
+    return ""
+  }
+  return absoluteDirectory(rest)
+}
+
+function pluginSourceDir(manifestSourceDir, componentUrl, expectedInstallDir) {
+  var injected = absoluteDirectory(manifestSourceDir)
+  if (injected !== "") return injected
+  var resolved = fileUrlToPath(componentUrl)
+  if (resolved !== "") return resolved
+  return absoluteDirectory(expectedInstallDir)
+}
+
+function shellQuote(value) {
+  return "'" + String(value || "").replace(/'/g, "'\\''") + "'"
+}
+
+function visibleTerminalCommand(innerArguments) {
+  var quoted = []
+  for (var i = 0; i < innerArguments.length; i++) quoted.push(shellQuote(innerArguments[i]))
   return [
-    "/usr/share/omarchy/bin/omarchy-launch-terminal",
-    "/usr/bin/omarchy", "plugin", "update", PLUGIN_ID
+    "/usr/share/omarchy/bin/omarchy-launch-floating-terminal-with-presentation",
+    quoted.join(" ")
   ]
+}
+
+function setupCommand(uvPath, sourceDir, pythonEnvironmentPath) {
+  return visibleTerminalCommand([
+    "/usr/bin/env",
+    "UV_PROJECT_ENVIRONMENT=" + String(pythonEnvironmentPath),
+    String(uvPath),
+    "--directory",
+    String(sourceDir),
+    "sync", "--locked", "--no-dev"
+  ])
+}
+
+function loginCommand(uvPath, sourceDir, pythonEnvironmentPath) {
+  return visibleTerminalCommand([
+    "/usr/bin/env",
+    "UV_PROJECT_ENVIRONMENT=" + String(pythonEnvironmentPath),
+    String(uvPath),
+    "--directory",
+    String(sourceDir),
+    "run", "--locked", "--no-sync",
+    "omarchy-garmin-insights", "auth", "login"
+  ])
+}
+
+function updateReviewCommand() {
+  return visibleTerminalCommand([
+    "/usr/bin/omarchy", "plugin", "update", PLUGIN_ID
+  ])
 }
 
 function garminConnectUrl(activityId) {
